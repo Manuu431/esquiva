@@ -501,7 +501,7 @@ intangible y más) y entrenar a los bots para que los aprovechen. Orden y estado
 
 - [x] A. Simulación: dificultad Imposible, proyectiles nuevos (rebotan, ráfagas) y mejoras
       (turbo, fantasma, escudo, corazón, bomba, doble, imán), con red, dibujo, menú y registro.
-- [ ] B. Bots: sensores y genoma para las mejoras; entrenamiento en arena con 2, 4 y 6 jugadores;
+- [x] B. Bots: sensores y genoma para las mejoras; entrenamiento en arena con 2, 4 y 6 jugadores;
       bot "Modo Dios" (planificador); niveles mezclados; nivel adaptativo.
 - [x] C. Juego: pausa en local, repeticiones, exportar el registro, ayuda con las mejoras.
 - [x] D. Robustez: retraso de red simulado en las pruebas de navegador; traspaso de anfitrión.
@@ -622,11 +622,60 @@ retraso, sala llena de 6 y relevo con tres pestañas. Las de dos pestañas falla
 por congelaciones del propio Chrome de pruebas en afirmaciones de tiempo (1 de cada 5 con el
 portátil cargado); el fallo del relevo indebido no ha vuelto a aparecer.
 
+## Iteración 11 — Los bots aprenden las mejoras; Modo Dios ajustado (2026-10-10, bucle autónomo)
+
+**Entrenamiento en arena con mejoras** (`arena2`, `train/results/arena2.csv`): población de 60
+que parte de los bots publicados, con lo que vale cada mejora sorteado entre 0 y 300 px; mesas de
+2, 4 y 6 bots (antes solo de 4); 250 generaciones. Tardó casi dos horas porque compartía el
+portátil con el ajuste del Modo Dios y con mis pruebas de navegador.
+
+Lo que la población valora de media cada mejora, en px de desvío que está dispuesta a hacer:
+
+| gen | turbo | fantasma | escudo | corazón | bomba | doble | imán |
+|----:|------:|---------:|-------:|--------:|------:|------:|-----:|
+|   0 |   120 |      125 |    110 |     103 |    96 |   113 |  113 |
+|  50 |   243 |      186 |    233 |     348 |    81 |   174 |  200 |
+| 100 |   216 |      177 |    228 |     280 |    62 |   275 |  182 |
+| 150 |   121 |      159 |    537 |     282 |    39 |   177 |   94 |
+| 200 |   150 |      100 |    620 |     253 |    41 |   144 |  290 |
+| 249 |    73 |      271 |    630 |     399 |    17 |   234 |  124 |
+
+Partían todas iguales y la evolución las separó sola: el **escudo** es lo que más vale (un impacto
+gratis), luego el **corazón**; el **turbo** y sobre todo la **bomba** acabaron casi ignorados. No
+lo habría adivinado: yo habría puesto la bomba mucho más arriba. Tiene su lógica para un bot que
+ya esquiva bien: la bomba le quita proyectiles que iba a esquivar igual, y el turbo le cambia los
+tiempos de esquiva a los que está acostumbrado. El criterio de rivales siguió subiendo, de (8,5,
+3,7) a (12,7, 9,2).
+
+Resultado en test (80 partidas de 4 bots, dos contra dos, con mejoras):
+
+| quién                        | contra quién                 | puntos         | rondas ganadas |
+|------------------------------|------------------------------|----------------|---------------:|
+| campeones nuevos (`arena2`)  | los publicados hasta ahora   | 14735 vs 12629 |           85 % |
+| campeones nuevos             | los de la fase en solitario  | 14845 vs 10622 |           98 % |
+
+**Integrado.** Niveles nuevos (jugando solos, reglas de referencia con mejoras): Fácil 3533,
+Normal 7349, Difícil 10954, Experto 17197.
+
+Ojo con la lectura: la validación por generación (16 partidas del campeón contra 3 publicados) fue
+muy ruidosa, entre el 19 % y el 88 % de victorias sin tendencia clara, y la media de la población
+subió poco (13582 -> 14592). Lo que da confianza es la medición final con 80 partidas, no la curva.
+
+**Modo Dios ajustado** (`train/tune-god.js`, descenso coordenado sobre 5 parámetros, 10 partidas
+por configuración): solo mejoraron dos cambios, objetivo 4 -> 8 y cambio de dirección a los 6
+ticks en vez de 12; de 72365 a 75318 puntos en las partidas de ajuste. En test (20 partidas):
+
+- solo: **72190 puntos, 211,5 s, 180 estrellas**;
+- uno contra tres campeones de red: 23815 puntos frente a 13866, y **gana 20 de 20**.
+
+Viaja en `weights.json` como un nivel más, con sus parámetros.
+
+Pruebas: 99 tests de Node; navegador: un jugador, dos pestañas, sala llena y relevo, todas en verde.
 
 ### Punto de control (para retomar)
 
-En marcha en segundo plano: `train/evolve-arena.js --name arena2` (bots de red con mejoras, mesas de
-2, 4 y 6; deja `train/runs/arena2/`) y `train/tune-god.js` (deja `train/results/god.json`).
-Cuando acaben: `node train/export.js --run arena2 --easy tca` (compara los nuevos con los
-publicados y añade el nivel Modo Dios con sus parámetros), pasar todas las pruebas, publicar si
-mejoran, y apuntar aquí las métricas. Después, el punto E del plan (experimentos largos).
+Hecho A, B, C y D del plan. Queda E (experimentos largos, todos opcionales y sin urgencia):
+repetir entrenamientos con varias semillas para saber cuánto es azar; que la red elija objetivo en
+vez de la regla; más de un proyectil por sector para acercar la red al planificador. Sin tareas
+en segundo plano ahora mismo.
+

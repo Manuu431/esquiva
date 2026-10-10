@@ -17,12 +17,12 @@
   // Parámetros por defecto (ajustados con train/tune-god.js).
   const DEFAULTS = {
     horizon: 40, // ticks de futuro que simula
-    turn: 12, // tick en el que cada secuencia puede cambiar de dirección
+    turn: 6, // tick en el que cada secuencia puede cambiar de dirección
     hit: 4000, // coste de un impacto (dividido por lo pronto que ocurre)
     margin: 16, // px de holgura que intenta dejar con cada proyectil
     near: 3, // coste por px de holgura perdida
     wall: 0.2, // coste por px de cercanía a una pared (a menos de 60)
-    target: 4, // lo que tira el objetivo: coste por px de distancia media hasta él en el horizonte
+    target: 8, // lo que tira el objetivo: coste por px de distancia media hasta él en el horizonte
     selA: 7, // criterio de rivales (como en los bots de red)
     selB: 5,
     // Lo que vale cada mejora, en px de desvío: turbo, fantasma, escudo, corazón, bomba, doble, imán.

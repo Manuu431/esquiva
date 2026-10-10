@@ -1,0 +1,222 @@
+{
+  "params": {
+    "horizon": 40,
+    "turn": 6,
+    "hit": 4000,
+    "margin": 16,
+    "near": 3,
+    "wall": 0.2,
+    "target": 8,
+    "selA": 7,
+    "selB": 5,
+    "powers": [
+      140,
+      180,
+      260,
+      380,
+      120,
+      320,
+      220
+    ]
+  },
+  "tune": {
+    "score": 75318,
+    "secs": 219.7,
+    "stars": 185.7,
+    "games": 10
+  },
+  "log": [
+    {
+      "param": "target",
+      "value": 2,
+      "score": 68573,
+      "secs": 222.5,
+      "stars": 166.8,
+      "kept": false
+    },
+    {
+      "param": "target",
+      "value": 8,
+      "score": 73936,
+      "secs": 210,
+      "stars": 182.4,
+      "kept": true
+    },
+    {
+      "param": "target",
+      "value": 16,
+      "score": 67551,
+      "secs": 185.2,
+      "stars": 172.7,
+      "kept": false
+    },
+    {
+      "param": "turn",
+      "value": 6,
+      "score": 75318,
+      "secs": 219.7,
+      "stars": 185.7,
+      "kept": true
+    },
+    {
+      "param": "turn",
+      "value": 12,
+      "score": 73936,
+      "secs": 210,
+      "stars": 182.4,
+      "kept": false
+    },
+    {
+      "param": "turn",
+      "value": 20,
+      "score": 70612,
+      "secs": 199.9,
+      "stars": 168.4,
+      "kept": false
+    },
+    {
+      "param": "turn",
+      "value": 40,
+      "score": 61401,
+      "secs": 180.9,
+      "stars": 149.2,
+      "kept": false
+    },
+    {
+      "param": "margin",
+      "value": 10,
+      "score": 70516,
+      "secs": 204.2,
+      "stars": 176.1,
+      "kept": false
+    },
+    {
+      "param": "margin",
+      "value": 24,
+      "score": 71982,
+      "secs": 210.4,
+      "stars": 174.7,
+      "kept": false
+    },
+    {
+      "param": "horizon",
+      "value": 30,
+      "score": 71377,
+      "secs": 206.3,
+      "stars": 176.2,
+      "kept": false
+    },
+    {
+      "param": "horizon",
+      "value": 54,
+      "score": 69961,
+      "secs": 199.3,
+      "stars": 172.3,
+      "kept": false
+    },
+    {
+      "param": "near",
+      "value": 1.5,
+      "score": 70734,
+      "secs": 211.6,
+      "stars": 173.8,
+      "kept": false
+    },
+    {
+      "param": "near",
+      "value": 6,
+      "score": 73349,
+      "secs": 213.7,
+      "stars": 180,
+      "kept": false
+    },
+    {
+      "param": "target",
+      "value": 3,
+      "score": 72580,
+      "secs": 240.5,
+      "stars": 171,
+      "kept": false
+    },
+    {
+      "param": "target",
+      "value": 4,
+      "score": 72929,
+      "secs": 225.7,
+      "stars": 171.8,
+      "kept": false
+    },
+    {
+      "param": "target",
+      "value": 6,
+      "score": 73170,
+      "secs": 216.6,
+      "stars": 179.6,
+      "kept": false
+    },
+    {
+      "param": "target",
+      "value": 12,
+      "score": 68088,
+      "secs": 188.7,
+      "stars": 171.6,
+      "kept": false
+    },
+    {
+      "param": "target",
+      "value": 16,
+      "score": 67097,
+      "secs": 184,
+      "stars": 165.5,
+      "kept": false
+    },
+    {
+      "param": "target",
+      "value": 24,
+      "score": 64759,
+      "secs": 171.8,
+      "stars": 162.9,
+      "kept": false
+    },
+    {
+      "param": "turn",
+      "value": 9,
+      "score": 71193,
+      "secs": 212.8,
+      "stars": 179.9,
+      "kept": false
+    },
+    {
+      "param": "turn",
+      "value": 12,
+      "score": 73936,
+      "secs": 210,
+      "stars": 182.4,
+      "kept": false
+    },
+    {
+      "param": "turn",
+      "value": 16,
+      "score": 70356,
+      "secs": 203.6,
+      "stars": 171,
+      "kept": false
+    },
+    {
+      "param": "turn",
+      "value": 20,
+      "score": 70612,
+      "secs": 199.9,
+      "stars": 168.4,
+      "kept": false
+    },
+    {
+      "param": "turn",
+      "value": 40,
+      "score": 61401,
+      "secs": 180.9,
+      "stars": 149.2,
+      "kept": false
+    }
+  ]
+}

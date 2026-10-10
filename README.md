@@ -1,5 +1,7 @@
 # Esquiva
 
+**Juega aquí: https://manuu431.github.io/esquiva/**
+
 Arcade de reflejos para el navegador. Esquiva los proyectiles, coge estrellas y suma más puntos
 que nadie. Se juega solo, contra bots o con 2-6 amigos en tiempo real, sin instalar nada.
 
@@ -118,7 +120,7 @@ node train/export.js --run mio # genera weights.json
 Las pruebas de navegador aceptan una dirección para probar el juego ya publicado:
 
 ```
-node test/browser/online.js https://usuario.github.io/esquiva/
+node test/browser/online.js https://manuu431.github.io/esquiva/
 ```
 
 El entrenamiento usa un solo hilo a prioridad baja. En un portátil de 2013 (i7-4700MQ) las 300

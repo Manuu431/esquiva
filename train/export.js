@@ -15,12 +15,12 @@ function arg(name, def) {
   return i < 0 ? def : process.argv[i + 1];
 }
 
-const RUN = String(arg('run', 'base'));
+const RUN = String(arg('run', 'tca'));
 const SELECT = T.seedList(700001, 60); // para elegir campeón final entre los candidatos
 const VARIANTS = 5; // redes distintas por nivel: en una partida cada bot lleva la suya
 const LEVELS = [
-  { name: 'Fácil', frac: 0.4, delay: 9 },
-  { name: 'Normal', frac: 0.7, delay: 6 },
+  { name: 'Fácil', frac: 0.3, delay: 9 },
+  { name: 'Normal', frac: 0.6, delay: 6 },
   { name: 'Difícil', frac: 1, delay: 6 },
   { name: 'Experto', frac: 1, delay: 0 },
 ];

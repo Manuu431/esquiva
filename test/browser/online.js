@@ -1,6 +1,7 @@
 // Prueba en navegador real (headless) con DOS pestañas: una crea la sala y la otra entra.
 // Usa el servidor público de PeerJS y WebRTC de verdad, así que necesita Internet.
-//   node test/browser/online.js
+//   node test/browser/online.js                  (sirve la carpeta local)
+//   node test/browser/online.js https://...      (prueba el juego ya publicado)
 'use strict';
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -9,7 +10,8 @@ const { launch, serve, sleep, waitFor } = require('../../tools/cdp.js');
 const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
 
 (async function () {
-  const server = await serve(8132);
+  const publicUrl = process.argv[2];
+  const server = publicUrl ? { url: publicUrl.replace(/\/?$/, '/'), stop: function () {} } : await serve(8132);
   const browser = await launch({ port: 9332 });
   let failed = false;
   try {
@@ -67,7 +69,7 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
     const sync = await bea.eval('(() => { const c = Esquiva.client(); const v = c.view(performance.now()); return { rtt: c.rtt, haz: v.state.hazards.length, ahead: v.hazExt * 60 }; })()');
     const hostHaz = await ana.eval('Esquiva.host().state.hazards.length');
     assert.ok(sync.haz > 0 && Math.abs(sync.haz - hostHaz) <= 2, 'proyectiles: invitada ' + sync.haz + ', anfitrión ' + hostHaz);
-    assert.ok(sync.rtt >= 0 && sync.rtt < 80, 'ida y vuelta en local: ' + sync.rtt.toFixed(1) + ' ms');
+    assert.ok(sync.rtt >= 0 && sync.rtt < 80, 'ida y vuelta entre dos pestañas: ' + sync.rtt.toFixed(1) + ' ms');
     assert.ok(sync.ahead >= 0 && sync.ahead < 8, 'adelanto de proyectiles: ' + sync.ahead.toFixed(2) + ' ticks');
     await ana.bringToFront();
     await ana.screenshot(path.join(SHOTS, 'online-2-anfitrion.png'));
@@ -96,7 +98,7 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
     const ignorar = (e) => /favicon/.test(e);
     assert.deepEqual(ana.errors.filter((e) => !ignorar(e)), [], 'sin errores en la consola del anfitrión');
     assert.deepEqual(bea.errors.filter((e) => !ignorar(e)), [], 'sin errores en la consola de la invitada');
-    console.log('OK online.js — sala ' + code + ', ida y vuelta ' + sync.rtt.toFixed(1) + ' ms, adelanto ' + sync.ahead.toFixed(2) + ' ticks, aviso: "' + toast + '"');
+    console.log('OK online.js (' + server.url + ') — sala ' + code + ', ida y vuelta ' + sync.rtt.toFixed(1) + ' ms, adelanto ' + sync.ahead.toFixed(2) + ' ticks, aviso: "' + toast + '"');
   } catch (e) {
     failed = true;
     console.error('FALLO online.js:', e.message);

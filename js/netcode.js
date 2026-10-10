@@ -449,6 +449,8 @@
           return { x: p.x, y: p.y };
         });
       }
+      // El aviso de fin de ronda y la instantánea final pueden llegar en cualquier orden.
+      if (snap.over && client.onChange) client.onChange();
     }
 
     // Ticks que hay que adelantar la última instantánea para dibujar "el presente del anfitrión

@@ -9,7 +9,7 @@
   const C = Sim.C;
 
   const N_SECT = 8; // sectores de 45° centrados en las 8 direcciones de movimiento
-  const PER_SECT = 3; // cercanía, velocidad de acercamiento, lado por el que pasa
+  const PER_SECT = 3; // cercanía, inminencia de impacto, lado por el que pasaría de largo
   const N_IN = N_SECT * PER_SECT + 4 + 3 + 1;
   const N_HID = 12;
   const N_OUT = 2;
@@ -17,12 +17,13 @@
 
   const SENSE_RANGE = 260; // px: más lejos de esto el bot no "ve" el proyectil
   const WALL_RANGE = 150;
-  const SPEED_REF = 400;
+  const HORIZON = 1.2; // s: más allá de esto un cruce no es urgente
+  const MISS_RANGE = 50; // px: pasar a más de esto es pasar de largo
   const DEADZONE = 0.3; // salida por debajo de esto = no moverse en ese eje
 
   const _threat = new Float64Array(N_SECT);
 
-  // Rellena out[0..N_IN) con lo que percibe el jugador idx. Todo en [-1.3, 1.3].
+  // Rellena out[0..N_IN) con lo que percibe el jugador idx. Todo en [-1, 1].
   function sense(s, idx, out) {
     const p = s.players[idx];
     for (let i = 0; i < N_SECT * PER_SECT; i++) out[i] = 0;
@@ -37,20 +38,32 @@
       const gap = d - z.r - C.PLAYER_R;
       if (gap > SENSE_RANGE) continue;
       const prox = gap <= 0 ? 1 : 1 - gap / SENSE_RANGE;
-      const speed = Math.sqrt(z.vx * z.vx + z.vy * z.vy) || 1e-6;
-      let closing = -(dx * z.vx + dy * z.vy) / d / SPEED_REF;
-      if (closing > 1.3) closing = 1.3;
-      else if (closing < -1) closing = -1;
-      // En cada sector solo cuenta el proyectil más amenazante: cercano y acercándose.
-      const threat = prox * (0.25 + (closing > 0 ? closing : 0));
+      // Si el jugador no se moviera: cuándo pasaría más cerca y a qué distancia.
+      const v2 = z.vx * z.vx + z.vy * z.vy || 1e-6;
+      const tca = -(dx * z.vx + dy * z.vy) / v2;
+      let urgency = 0;
+      let lateral = 0;
+      let hit = 0;
+      if (tca > 0) {
+        const cx = dx + z.vx * tca;
+        const cy = dy + z.vy * tca;
+        const miss = Math.sqrt(cx * cx + cy * cy) - z.r - C.PLAYER_R;
+        urgency = tca >= HORIZON ? 0 : 1 - tca / HORIZON;
+        hit = miss <= 0 ? 1 : miss >= MISS_RANGE ? 0 : 1 - miss / MISS_RANGE;
+        const side = dx * z.vy - dy * z.vx > 0 ? 1 : -1;
+        lateral = side * (1 - hit);
+      }
+      // En cada sector solo cuenta el proyectil más amenazante: el que va a dar antes, o el que
+      // ya está casi encima.
+      const threat = urgency * hit + (gap < 30 ? 0.3 * (1 - Math.max(0, gap) / 30) : 0) + 0.01 * prox;
       let k = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
       k = (k + N_SECT) % N_SECT;
       if (threat > _threat[k]) {
         _threat[k] = threat;
         const o = k * PER_SECT;
         out[o] = prox;
-        out[o + 1] = closing;
-        out[o + 2] = (dx * z.vy - dy * z.vx) / (d * speed); // seno: >0 pasa por un lado, <0 por el otro
+        out[o + 1] = urgency * hit; // 1 = impacto inminente; 0 = no viene o no dará
+        out[o + 2] = lateral; // 0 = viene centrado; ±1 = pasará de largo por ese lado
       }
     }
 

@@ -11,7 +11,7 @@ function arg(name, def) {
   return i < 0 ? def : process.argv[i + 1];
 }
 
-const RUN = String(arg('run', 'base'));
+const RUN = String(arg('run', 'tca'));
 const MAX_TICKS = 60 * 240;
 const TEST = T.seedList(500003, 60);
 

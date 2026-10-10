@@ -52,8 +52,8 @@ Sin frameworks ni paso de compilación: HTML, CSS y JavaScript tal cual.
 ### Los bots
 
 Cada bot percibe 32 números: para cada una de 8 direcciones, el proyectil más amenazante (cómo de
-cerca, cómo de rápido se acerca y por qué lado pasa), la cercanía de las 4 paredes, hacia dónde
-queda la estrella y si es invulnerable. De ahí salen dos números que se convierten en una de las 9
+cerca está, cómo de inminente es el impacto y por qué lado pasaría de largo), la cercanía de las 4
+paredes, hacia dónde queda la estrella y si es invulnerable. De ahí salen dos números que se convierten en una de las 9
 acciones del teclado. No puede hacer nada que no pueda hacer una persona.
 
 El entrenamiento (`train/evolve.js`) es un algoritmo evolutivo clásico: una población de 64 redes
@@ -67,15 +67,21 @@ Resultados en 60 partidas que ningún bot había visto (detalle por generación 
 |---|---:|---:|
 | Quieto | 874 | 15 s |
 | Aleatorio | 1245 | 20 s |
-| Red sin entrenar (generación 0) | 1458 | 23 s |
-| Red, generación 10 | 3529 | 29 s |
-| Red, generación 80 | 6567 | 31 s |
-| **Red, campeón final** | **8685** | **48 s** |
+| Red sin entrenar (generación 0) | 1422 | 23 s |
+| Red, generación 10 | 5553 | 32 s |
+| Red, generación 80 | 8172 | 43 s |
+| **Red, campeón final** | **11829** | **58 s** |
 | Planificador escrito a mano con 250 ms de reacción | 4018 | 35 s |
 | Planificador escrito a mano perfecto (techo del juego) | 16288 | 198 s |
 
 Los niveles del juego salen de esa misma evolución: *Fácil* y *Normal* son campeones de
-generaciones tempranas; *Difícil* y *Experto* son el campeón final, con y sin tiempo de reacción.
+generaciones tempranas (la 6 y la 40); *Difícil* y *Experto* son el campeón final, con 100 ms de
+tiempo de reacción y sin él. Jugando solos hacen de media 2768, 6199, 8413 y 11829 puntos.
+
+Hubo dos entrenamientos. En el primero la red veía de cada proyectil «cerca y acercándose» y se
+quedó en 8685 puntos. En el segundo ve «cuándo y por dónde pasará», con la misma red y el mismo
+algoritmo, y llega a 11829. La red sigue lejos del planificador perfecto, que ve toda la arena sin
+límite de alcance; ese margen queda para quien quiera seguir el experimento.
 
 ### El retraso de red
 
@@ -109,10 +115,18 @@ node train/eval.js --run mio   # evaluación en partidas de test
 node train/export.js --run mio # genera weights.json
 ```
 
+Las pruebas de navegador aceptan una dirección para probar el juego ya publicado:
+
+```
+node test/browser/online.js https://usuario.github.io/esquiva/
+```
+
 El entrenamiento usa un solo hilo a prioridad baja. En un portátil de 2013 (i7-4700MQ) las 300
 generaciones tardan unos 25 minutos.
 
-## Créditos
+## Licencia y créditos
+
+- Código bajo licencia [MIT](LICENSE).
 
 - [PeerJS](https://github.com/peers/peerjs) 1.5.5 (licencia MIT), incluido en `js/vendor/`.
 - Hecho como experimento con Claude Code. El diario completo de decisiones, problemas y métricas

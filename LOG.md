@@ -196,3 +196,73 @@ Límites que siguen ahí:
 
 Siguiente: guardar las partidas del humano para compararlas con los bots, README, pulido, y
 preguntar por la publicación. En paralelo, segundo experimento de entrenamiento con mejores sensores.
+
+## Iteración 4 — Fase 4 (parte 1): pulido y prueba de sala llena (2026-10-10)
+
+Hecho:
+- Detrás del menú se ve una partida de exhibición entre 4 bots Experto.
+- El juego guarda las partidas en solitario del humano (en el navegador, `localStorage`) y enseña
+  su récord y su media junto a la media de cada nivel de bot: es la comparación humano-bot que
+  falta por rellenar con datos reales.
+- Botones de sonido y de salir (para móvil, donde no hay Esc). El control táctil funciona en toda
+  la pantalla y está probado en la prueba de navegador.
+- README.
+- `test/browser/six.js`: **sala llena con 6 pestañas reales** (1 anfitrión + 5 invitados). Entran
+  todos, el séptimo recibe "sala llena", cada invitado mueve a su jugador y el anfitrión mantiene
+  60,2 Hz en este portátil con las 6 pestañas abiertas.
+
+Ajuste: si el aviso de fin de ronda llegaba antes que la instantánea final (el canal no ordena),
+el invitado tardaba hasta 1 s en ver los resultados. Ahora los muestra en cuanto llega cualquiera
+de las dos cosas.
+
+## Iteración 5 — Segundo experimento de entrenamiento: sensores de cruce (2026-10-10)
+
+Hipótesis: a la red le faltaba geometría. Con "cerca" y "acercándose" tiene que deducir si un
+proyectil le va a dar; un planificador lo calcula directamente. Cambio único, en los sensores:
+de cada sector se sigue mirando un solo proyectil, pero ahora se describe con
+- cercanía (igual que antes),
+- inminencia del impacto: 1 si va a dar ya, 0 si no viene o pasará a más de 50 px,
+- lado por el que pasaría de largo (0 si viene centrado).
+
+Mismo número de entradas (32), misma red (422 pesos), mismo algoritmo, misma semilla. Se entrenó
+en una copia aparte para no tocar el juego hasta saber el resultado.
+
+Métricas por generación (`train/results/tca.csv`; entre paréntesis, el primer entrenamiento):
+
+| gen | media población | validación (puntos) | validación (s) |
+|----:|----------------:|--------------------:|---------------:|
+|   0 |   1113   (1068) |       1351   (1475) |    21,8 (23,6) |
+|  50 |   6924   (5726) |       7745   (6110) |    39,1 (30,8) |
+| 100 |   9181   (6554) |       9351   (6526) |    55,3 (29,3) |
+| 150 |  10215   (7994) |      10276   (8932) |    50,5 (46,9) |
+| 200 |  10468   (8489) |      10918   (8963) |    53,2 (43,6) |
+| 250 |  10733   (8947) |      10718   (9405) |    59,9 (46,5) |
+| 299 |  11270   (9301) |      11113   (9188) |    58,7 (49,1) |
+
+En las 60 partidas de test: campeón final **11829 puntos, 57,9 ± 12,9 s, 27,9 estrellas**
+(antes 8685 puntos, 48,1 s, 19,3 estrellas). Mejora del 36 % en puntos. Integrado.
+
+Niveles nuevos en `weights.json`, medidos en test:
+
+| nivel   | red                | reacción | puntos | segundos |
+|---------|--------------------|---------:|-------:|---------:|
+| Fácil   | campeón gen 6      |   150 ms |   2768 |     23,4 |
+| Normal  | campeón gen 40     |   100 ms |   6199 |     33,3 |
+| Difícil | campeón final (294)|   100 ms |   8413 |     42,5 |
+| Experto | campeón final (294)|     0 ms |  11829 |     57,9 |
+
+Lo que sigue sin resolverse: el planificador perfecto hace 16288 puntos y aguanta 198 s. La red
+coge más estrellas que él (27,9 frente a 14,6) pero aguanta menos de un tercio. Ideas no probadas:
+más de un proyectil por sector, alcance mayor, entrenar con varios bots a la vez en la arena.
+
+## Publicación (2026-10-10)
+
+Autorización del usuario: repositorio público `esquiva`, licencia MIT, commits reescritos con su
+dirección noreply de GitHub antes del primer push, push y GitHub Pages sin más preguntas. Él solo
+inicia sesión.
+
+- **Descargado: GitHub CLI 2.102.0 portable** (zip oficial de github.com/cli/cli, SHA256
+  verificado) en `.tools/gh/` (41 MB), con su configuración en `.tools/gh-config/`. Excluido de
+  git. El inicio de sesión lo hace el usuario con `.tools/login-github.cmd`; yo no veo ni toco la
+  contraseña ni el token (lo guarda GitHub CLI en el almacén de credenciales de Windows).
+- Añadidos `LICENSE` (MIT) y `.nojekyll`.

@@ -30,8 +30,9 @@ test('un proyectil que viene de frente por la derecha activa el sector 0', () =>
   s.hazards.push({ x: p.x + 100, y: p.y, vx: -400, vy: 0, r: 10 });
   const out = NN.sense(s, 0, new Float64Array(NN.N_IN));
   assert.ok(out[0] > 0.6, 'cercanía');
-  assert.ok(Math.abs(out[1] - 1) < 1e-9, 'se acerca a la velocidad de referencia');
-  assert.ok(Math.abs(out[2]) < 1e-9, 'viene recto: ni a un lado ni a otro');
+  // Llegaría en 0,25 s de un horizonte de 1,2 s, y da de lleno.
+  assert.ok(Math.abs(out[1] - (1 - 0.25 / 1.2)) < 1e-9, 'inminencia del impacto');
+  assert.ok(Math.abs(out[2]) < 1e-9, 'viene centrado: ni a un lado ni a otro');
   for (let i = SECT; i < 8 * SECT; i++) assert.equal(out[i], 0);
 });
 
@@ -52,7 +53,40 @@ test('en un sector manda el proyectil más amenazante, no el más cercano', () =
   s.hazards.push({ x: p.x + 60, y: p.y, vx: 400, vy: 0, r: 10 }); // cerca pero alejándose
   s.hazards.push({ x: p.x + 120, y: p.y, vx: -400, vy: 0, r: 10 }); // más lejos pero viene
   const out = NN.sense(s, 0, new Float64Array(NN.N_IN));
-  assert.ok(out[1] > 0.9, 'se queda con el que se acerca');
+  assert.ok(out[1] > 0.6, 'se queda con el que va a dar');
+});
+
+test('un proyectil que pasará de largo no es urgente, y se sabe por qué lado pasa', () => {
+  const lado = (vy) => {
+    const s = emptyState();
+    const p = s.players[0];
+    // Viene desde la derecha, pero desviado: cruzará 100 px por encima o por debajo.
+    s.hazards.push({ x: p.x + 200, y: p.y, vx: -400, vy: vy, r: 10 });
+    return NN.sense(s, 0, new Float64Array(NN.N_IN));
+  };
+  const arriba = lado(-250);
+  const abajo = lado(250);
+  assert.ok(arriba[0] > 0, 'se percibe');
+  assert.equal(arriba[1], 0, 'no va a dar');
+  assert.equal(arriba[2], -1, 'pasa de largo por un lado...');
+  assert.equal(abajo[2], 1, '...o por el otro');
+
+  // Si va a rozar, la urgencia y el lado son intermedios.
+  const s = emptyState();
+  const p = s.players[0];
+  s.hazards.push({ x: p.x + 200, y: p.y + 46, vx: -400, vy: 0, r: 10 }); // pasará a 25 px del borde
+  const roce = NN.sense(s, 0, new Float64Array(NN.N_IN));
+  assert.ok(roce[1] > 0.1 && roce[1] < 0.5, 'urgencia parcial: ' + roce[1]);
+  assert.ok(Math.abs(Math.abs(roce[2]) - 0.5) < 1e-9, 'lado parcial: ' + roce[2]);
+});
+
+test('un proyectil casi encima cuenta aunque ya no vaya a dar', () => {
+  const s = emptyState();
+  const p = s.players[0];
+  s.hazards.push({ x: p.x + 30, y: p.y, vx: 0, vy: 300, r: 10 }); // pegado, cruzando por delante
+  s.hazards.push({ x: p.x + 250, y: p.y, vx: 0, vy: 300, r: 10 }); // lejos, igual de inofensivo
+  const out = NN.sense(s, 0, new Float64Array(NN.N_IN));
+  assert.ok(out[0] > 0.9, 'el sector informa del que está pegado: ' + out[0]);
 });
 
 test('lo que queda fuera del alcance no se percibe', () => {
@@ -87,7 +121,7 @@ test('todas las percepciones están acotadas durante una partida real', () => {
   for (let t = 0; t < 60 * 60; t++) {
     Sim.step(s, [{ mx: (t >> 5) % 3 - 1, my: (t >> 6) % 3 - 1 }]);
     NN.sense(s, 0, out);
-    for (let i = 0; i < NN.N_IN; i++) assert.ok(out[i] >= -1.3001 && out[i] <= 1.3001 && !Number.isNaN(out[i]));
+    for (let i = 0; i < NN.N_IN; i++) assert.ok(out[i] >= -1 && out[i] <= 1 && !Number.isNaN(out[i]));
   }
 });
 

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0a0d18">
+  <meta name="description" content="Esquiva: arcade de reflejos para 2-6 amigos, con bots entrenados por neuroevolución.">
+  <title>Esquiva</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0d18'/%3E%3Ccircle cx='12' cy='19' r='7' fill='%2338e1ff'/%3E%3Ccircle cx='23' cy='9' r='5' fill='%23ff4d5e'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="stage">
+    <canvas id="canvas" width="800" height="600" aria-label="Arena de juego"></canvas>
+
+    <div id="touch-hint" class="hidden">Arrastra el dedo para moverte</div>
+
+    <section id="menu" class="overlay">
+      <h1>ESQUIVA</h1>
+      <p class="tagline">Aguanta. Coge estrellas. Sé el último en pie.</p>
+
+      <label class="field">
+        <span>Tu nombre</span>
+        <input id="name" type="text" maxlength="12" autocomplete="off" spellcheck="false" placeholder="Jugador">
+      </label>
+
+      <div class="panel">
+        <h2>En este ordenador</h2>
+        <div class="row">
+          <label class="field small">
+            <span>Bots</span>
+            <select id="bots">
+              <option value="0">Ninguno</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </label>
+          <label class="field small">
+            <span>Nivel de los bots</span>
+            <select id="level"></select>
+          </label>
+        </div>
+        <button id="btn-play" class="primary">Jugar</button>
+        <p id="bots-note" class="note hidden"></p>
+      </div>
+
+      <div class="panel" id="panel-online">
+        <h2>Con amigos (2-6)</h2>
+        <div class="row">
+          <button id="btn-host">Crear sala</button>
+          <input id="code" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="CÓDIGO">
+          <button id="btn-join">Unirse</button>
+        </div>
+        <p id="online-note" class="note">Próximamente.</p>
+      </div>
+
+      <p class="keys">Muévete con <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> o las flechas · <kbd>M</kbd> sonido</p>
+      <p id="record" class="note"></p>
+    </section>
+
+    <section id="lobby" class="overlay hidden">
+      <h2 id="lobby-title">Sala</h2>
+      <p class="code-box"><span id="lobby-code">-----</span><button id="btn-copy" class="tiny">Copiar enlace</button></p>
+      <ul id="lobby-players" class="players"></ul>
+      <div class="row" id="lobby-host-controls">
+        <label class="field small">
+          <span>Bots</span>
+          <select id="lobby-bots">
+            <option value="0" selected>Ninguno</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </label>
+        <label class="field small">
+          <span>Nivel</span>
+          <select id="lobby-level"></select>
+        </label>
+        <button id="btn-start" class="primary">Empezar</button>
+      </div>
+      <p id="lobby-status" class="note"></p>
+      <button id="btn-leave" class="ghost">Salir</button>
+    </section>
+
+    <section id="gameover" class="overlay hidden">
+      <h2 id="over-title">Fin de la ronda</h2>
+      <ol id="over-list" class="players"></ol>
+      <p id="over-note" class="note"></p>
+      <div class="row">
+        <button id="btn-again" class="primary">Otra ronda</button>
+        <button id="btn-menu" class="ghost">Menú</button>
+      </div>
+    </section>
+
+    <div id="toast" class="hidden"></div>
+  </div>
+
+  <script src="js/sim.js"></script>
+  <script src="js/nn.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

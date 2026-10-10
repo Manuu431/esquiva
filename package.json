@@ -1,0 +1,13 @@
+{
+  "name": "esquiva",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arcade de reflejos multijugador con bots entrenados por neuroevolución",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "serve": "node tools/serve.js",
+    "train": "node train/evolve.js",
+    "eval": "node train/eval.js"
+  }
+}

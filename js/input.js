@@ -40,6 +40,8 @@
   function attachTouch(el) {
     el.addEventListener('pointerdown', function (e) {
       if (e.pointerType === 'mouse') return;
+      // Los toques sobre menús y botones son para ellos, no para mover al jugador.
+      if (e.target.closest && e.target.closest('.overlay, button')) return;
       usedTouch = true;
       touch.id = e.pointerId;
       touch.x0 = e.clientX;

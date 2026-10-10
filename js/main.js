@@ -43,6 +43,7 @@
   let countdownShown = 0;
   let resultsRound = -1; // ronda cuyos resultados ya se han mostrado
   let busy = false; // conectando
+  let demo = null; // partida de exhibición entre bots que se ve detrás del menú
   const humanInput = { mx: 0, my: 0 };
   const localView = { state: null, meta: [], localIdx: -1, countdown: 0, hazExt: 0, plExt: 0 };
 
@@ -61,7 +62,42 @@
       .catch(function () {
         levels = [];
       })
-      .then(fillLevelSelects);
+      .then(fillLevelSelects)
+      .then(updateRecord);
+  }
+
+  // ---------- Exhibición detrás del menú ----------
+
+  function newDemo() {
+    const top = levels.length - 1;
+    if (top < 0) return null;
+    const n = 4;
+    const brains = [];
+    for (let i = 0; i < n; i++) brains.push(makeBot(top, i));
+    return {
+      state: Sim.createState({ seed: randomSeed(), numPlayers: n }),
+      meta: BOT_NAMES.slice(0, n).map(function (name) {
+        return { name: name, kind: 'bot' };
+      }),
+      brains: brains,
+      inputs: [],
+      rest: 0,
+    };
+  }
+
+  function stepDemo() {
+    if (!demo) {
+      demo = newDemo();
+      if (!demo) return;
+    }
+    const s = demo.state;
+    if (s.over) {
+      if (++demo.rest > 2 * C.TICK_HZ) demo = null;
+      return;
+    }
+    for (let i = 0; i < demo.brains.length; i++) demo.inputs[i] = s.players[i].alive ? demo.brains[i](s, i) : null;
+    Sim.step(s, demo.inputs);
+    Render.onEvents(s.events, -1);
   }
 
   function fillLevelSelects() {
@@ -227,6 +263,7 @@
     roomCode = '';
     resultsRound = -1;
     countdownShown = 0;
+    demo = null;
     Render.clearEffects();
     setHash('');
     updateRecord();
@@ -353,12 +390,14 @@
     if (solo) {
       const mine = s.players[0].score;
       const record = parseInt(store.get('record', '0'), 10) || 0;
+      recordSolo(s.players[0], s.tick);
       if (mine > record) {
         store.set('record', mine);
         note = record ? '¡Nuevo récord! El anterior era ' + record + '.' : '¡Primer récord!';
       } else {
         note = 'Tu récord: ' + record + '.';
       }
+      if (botsSoloText()) note += ' Media de los bots jugando solos: ' + botsSoloText() + '.';
       $('over-title').textContent = 'Aguantaste ' + fmtTime(s.tick);
     } else {
       $('over-title').textContent = s.winner === localIdx ? '¡Has ganado!' : 'Gana ' + meta[s.winner].name;
@@ -369,6 +408,33 @@
     $('btn-again').classList.toggle('hidden', mode === 'client');
     $('btn-menu').textContent = mode === 'local' ? 'Menú' : mode === 'host' ? 'Volver a la sala' : 'Salir';
     show('gameover');
+  }
+
+  // Partidas en solitario del humano, para compararlas con lo que hacen los bots solos.
+  function soloHistory() {
+    try {
+      const h = JSON.parse(store.get('history', '[]'));
+      return Array.isArray(h) ? h : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function recordSolo(p, ticks) {
+    const h = soloHistory();
+    h.push({ score: p.score, secs: Math.round((ticks / C.TICK_HZ) * 10) / 10, stars: p.stars });
+    store.set('history', JSON.stringify(h.slice(-50)));
+  }
+
+  function botsSoloText() {
+    return levels
+      .filter(function (lv) {
+        return lv.test;
+      })
+      .map(function (lv) {
+        return lv.name + ' ' + lv.test.score;
+      })
+      .join(' · ');
   }
 
   function fmtTime(ticks) {
@@ -388,11 +454,21 @@
       $(k).classList.toggle('hidden', k !== id);
     });
     if (id) $('touch-hint').classList.add('hidden');
+    $('btn-exit').classList.toggle('hidden', id !== null); // solo durante la partida
   }
 
   function updateRecord() {
     const record = parseInt(store.get('record', '0'), 10) || 0;
-    $('record').textContent = record ? 'Tu récord en solitario: ' + record : '';
+    const h = soloHistory();
+    let text = '';
+    if (h.length) {
+      const recent = h.slice(-10);
+      const avg = recent.reduce(function (a, r) { return a + r.score; }, 0) / recent.length;
+      const secs = recent.reduce(function (a, r) { return a + r.secs; }, 0) / recent.length;
+      text = 'Tú en solitario: récord ' + record + ', media de las últimas ' + recent.length + ': ' + Math.round(avg) + ' puntos (' + secs.toFixed(1) + ' s).';
+      if (botsSoloText()) text += ' Bots: ' + botsSoloText() + '.';
+    }
+    $('record').textContent = text;
   }
 
   let toastTimer = 0;
@@ -420,9 +496,8 @@
     const now = performance.now();
     const elapsed = now - last;
     last = now;
-    if (!host && !client) return;
-    // En local no hay nadie esperando: si no se está mirando, la partida se pausa.
-    if (mode === 'local' && document.hidden) return;
+    // En local (y en la exhibición) no hay nadie esperando: si no se mira, se pausa.
+    if ((mode === 'local' || mode === null) && document.hidden) return;
     acc += elapsed;
     if (acc > 250) acc = 250; // tras un parón no se intenta recuperar todo de golpe
     while (acc >= STEP_MS) {
@@ -430,7 +505,7 @@
       Input.read(humanInput);
       if (host) host.tick(humanInput, now - acc);
       else if (client) client.tick(humanInput, now - acc);
-      else break; // un cambio de estado dentro del tick cerró la partida
+      else stepDemo();
     }
   }
 
@@ -450,8 +525,11 @@
       v.countdown = host.phase === 'countdown' ? Math.ceil(host.countdown / C.TICK_HZ) : 0;
       v.hazExt = v.plExt = playing ? acc / 1000 : 0;
     } else {
-      v.state = null;
+      v.state = demo ? demo.state : null;
+      v.meta = demo ? demo.meta : [];
+      v.localIdx = -1;
       v.countdown = 0;
+      v.hazExt = v.plExt = demo && !demo.state.over ? acc / 1000 : 0;
     }
 
     if (v.countdown !== countdownShown) {
@@ -466,6 +544,7 @@
       hazExt: v.hazExt,
       plExt: v.plExt,
       countdown: v.countdown,
+      dim: mode === null,
       banner: client && v.state && v.localIdx < 0 && client.phase === 'playing' ? 'Ronda en curso: entras en la siguiente' : '',
     });
   }
@@ -484,7 +563,7 @@
 
   function boot() {
     Render.init($('canvas'));
-    Input.attachTouch($('canvas'));
+    Input.attachTouch($('stage'));
     $('name').value = store.get('name', '');
     $('bots').value = store.get('bots', '3');
     updateRecord();
@@ -524,6 +603,16 @@
       if (mode === 'host') host.start(randomSeed());
     });
     $('btn-leave').addEventListener('click', leave);
+    $('btn-exit').addEventListener('click', leave);
+    const paintMute = function () {
+      $('btn-mute').textContent = Sfx.isMuted() ? 'Sonido: no' : 'Sonido: sí';
+    };
+    $('btn-mute').addEventListener('click', function () {
+      Sfx.unlock();
+      Sfx.toggleMute();
+      paintMute();
+    });
+    paintMute();
     $('btn-copy').addEventListener('click', function () {
       const url = location.origin + location.pathname + '#' + roomCode;
       const done = function () {
@@ -545,7 +634,7 @@
     window.addEventListener('keydown', function (e) {
       const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT');
       if (e.code === 'KeyM' && !typing) {
-        toast(Sfx.toggleMute() ? 'Sonido desactivado' : 'Sonido activado');
+        $('btn-mute').click();
       } else if (e.code === 'Enter') {
         const ph = phase();
         if (ph === 'over' && mode !== 'client') $('btn-again').click();

@@ -31,6 +31,21 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
     const x1 = await page.eval('Esquiva.state().players[0].x');
     assert.ok(x1 > x0 + 60, 'el jugador se movió a la derecha: ' + x0 + ' -> ' + x1);
 
+    // Táctil: arrastrar el dedo hacia abajo mueve al jugador hacia abajo; al soltar, se para.
+    const y0 = await page.eval('Esquiva.state().players[0].y');
+    const touch = (type, x, y) =>
+      page.send('Input.dispatchTouchEvent', { type: type, touchPoints: type === 'touchEnd' ? [] : [{ x: x, y: y, id: 1 }] });
+    await touch('touchStart', 300, 300);
+    await touch('touchMove', 300, 330);
+    await touch('touchMove', 300, 360);
+    await sleep(400);
+    await touch('touchEnd');
+    const y1 = await page.eval('Esquiva.state().players[0].y');
+    await sleep(200);
+    const y2 = await page.eval('Esquiva.state().players[0].y');
+    assert.ok(y1 > y0 + 50, 'el dedo movió al jugador hacia abajo: ' + y0.toFixed(0) + ' -> ' + y1.toFixed(0));
+    assert.ok(Math.abs(y2 - y1) < 6, 'al levantar el dedo se detiene');
+
     // La simulación corre a ~60 ticks por segundo de reloj.
     const t0 = await page.eval('Esquiva.state().tick');
     await sleep(2000);

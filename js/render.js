@@ -263,6 +263,11 @@
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     if (view) drawHud(view, meta, o);
 
+    if (o.dim) {
+      // Exhibición detrás del menú: se oscurece para que no compita con él.
+      ctx.fillStyle = 'rgba(9, 12, 24, 0.55)';
+      ctx.fillRect(0, 0, C.W, C.H);
+    }
     if (o.countdown) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

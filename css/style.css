@@ -27,6 +27,7 @@ html, body {
 #stage {
   position: fixed;
   inset: 0;
+  touch-action: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -54,6 +55,7 @@ html, body {
   border-radius: 14px;
   text-align: center;
   backdrop-filter: blur(3px);
+  touch-action: pan-y;
 }
 
 .hidden { display: none !important; }
@@ -169,6 +171,16 @@ kbd {
   -webkit-user-select: text;
   user-select: text;
 }
+
+#corner {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  opacity: 0.75;
+}
+#corner button { margin: 0; background: rgba(13, 17, 34, 0.85); }
 
 #toast {
   position: absolute;

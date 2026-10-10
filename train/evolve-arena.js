@@ -40,11 +40,12 @@ const CFG = {
   selSigma: 0.4, // ...y con pasos propios: este para los dos de rivales...
   powerSigma: 35, // ...y este (en px) para lo que vale cada mejora
   powerInit: 300, // valor inicial máximo de una mejora (px de desvío que compensa)
+  starInit: 200, // ...y de lo que pesa que una estrella valga el doble
   maxTicks: 60 * 240,
   valGames: 16, // partidas fijas del campeón contra 3 bots de referencia
   valSeeds: 20, // partidas fijas del campeón jugando solo
   restMs: 150,
-  hazards: [1, 1, 1, 0, 1, 1, 1, 2], // casi todo en dificultad normal
+  hazards: [1, 1, 2, 1, 3, 1, 0, 2], // la mitad en normal; el resto, repartido (con sus enemigos)
 };
 
 const DIR = path.join(__dirname, 'runs', CFG.name);
@@ -131,7 +132,8 @@ async function main() {
 
   // Bots de referencia: los publicados tal cual (no saben nada de mejoras).
   const published = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'weights.json'), 'utf8'));
-  const seedsNets = published.levels[published.levels.length - 1].variants;
+  const nets = published.levels.filter(function (lv) { return lv.variants; }); // los niveles que son redes
+  const seedsNets = nets[nets.length - 1].variants;
   const reference = seedsNets.map(function (g) {
     return NN.upgrade(g);
   });
@@ -140,11 +142,14 @@ async function main() {
   let sigma = CFG.sigma0;
   let pop = [];
   for (let i = 0; i < CFG.pop; i++) {
-    // Se parte de los publicados (con su criterio de rivales) y se sortea lo que vale cada
-    // mejora; una cuarta parte empieza sin valorar ninguna, como ellos.
+    // Se parte de los publicados, con todo lo que ya traen aprendido (criterio de rivales y lo
+    // que vale cada mejora). Lo que el genoma aún no tenía ajustado se sortea; una cuarta parte
+    // de la población lo deja como venía.
     const g = NN.upgrade(seedsNets[i % seedsNets.length]);
     if (i >= CFG.pop / 4) {
-      for (let k = NN.N_NET + NN.SEL_POWER; k < NN.N_W; k++) g[k] = rng() * CFG.powerInit;
+      for (let k = NN.N_NET + NN.SEL_POWER; k < NN.N_W; k++) {
+        if (g[k] === 0) g[k] = rng() * (k === NN.N_NET + NN.SEL_STAR ? CFG.starInit : CFG.powerInit);
+      }
     }
     // Las primeras copias de cada red se dejan intactas; las demás, ligeramente mutadas.
     if (i >= seedsNets.length * 2) {
@@ -153,7 +158,7 @@ async function main() {
     pop.push(g);
   }
 
-  fs.writeFileSync(logFile, 'gen,mejor,media,mediana,arena_puntos,arena_rivales,arena_gana,solo_puntos,sel_a,sel_b,media_sel_a,media_sel_b,sigma,segundos_calculo,media_turbo,media_fantasma,media_escudo,media_corazon,media_bomba,media_doble,media_iman\n');
+  fs.writeFileSync(logFile, 'gen,mejor,media,mediana,arena_puntos,arena_rivales,arena_gana,solo_puntos,sel_a,sel_b,media_sel_a,media_sel_b,sigma,segundos_calculo,media_turbo,media_fantasma,media_escudo,media_corazon,media_bomba,media_doble,media_iman,media_valor_estrella\n');
   fs.writeFileSync(champFile, '');
   fs.writeFileSync(path.join(DIR, 'config.json'), JSON.stringify(CFG, null, 2));
   console.log('Entrenamiento en arena "' + CFG.name + '": ' + JSON.stringify(CFG));

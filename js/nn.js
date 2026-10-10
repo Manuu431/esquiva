@@ -20,7 +20,8 @@
   const N_OUT = 2;
   const N_NET = (N_IN + 1) * N_HID + (N_HID + 1) * N_OUT; // pesos de la red
   const SEL_POWER = 2; // posición, dentro del criterio, del valor de la primera mejora
-  const N_SEL = SEL_POWER + N_POWERS; // criterio: 2 números para los rivales + el valor de cada mejora
+  const SEL_STAR = SEL_POWER + N_POWERS; // ...y de lo que pesa el valor de una estrella
+  const N_SEL = SEL_STAR + 1; // criterio: 2 números para los rivales + el valor de cada mejora + 1
   const N_W = N_NET + N_SEL; // tamaño del genoma completo
 
   const SENSE_RANGE = 260; // px: más lejos de esto el bot no "ve" el proyectil
@@ -31,7 +32,7 @@
   const GHOST_MARGIN = 20; // ticks: con más de esto de intangible, los proyectiles no son amenaza
 
   const _threat = new Float64Array(N_SECT);
-  const _target = { x: 0, y: 0 };
+  const _target = { x: 0, y: 0, r: 0 };
   const _none = [];
   const NO_SEL = new Float64Array(N_SEL);
 
@@ -63,30 +64,35 @@
   }
 
   // ¿A por qué va el jugador idx? Cada estrella y cada mejora tiene un coste, y elige el menor:
-  //   estrella: mi distancia + penalización por rivales
+  //   estrella: mi distancia + penalización por rivales - S * (lo que vale de más o de menos
+  //             que una estrella normal, medido en estrellas normales)
   //   mejora:   mi distancia + penalización por rivales - lo que el bot valora esa mejora (px)
-  // sel = [A, B, valor de cada mejora...]. Con todo a 0 (o sin rivales ni mejoras) es la estrella
-  // más cercana. Devuelve el índice de la estrella, o -1 - k si es la mejora k; el punto elegido
-  // queda en `out` si se pasa.
+  // sel = [A, B, valor de cada mejora..., S]. Con todo a 0 (o sin rivales ni mejoras) es la
+  // estrella más cercana. Devuelve el índice de la estrella, o -1 - k si es la mejora k; el punto
+  // elegido y la distancia a la que se coge quedan en `out` si se pasa.
   function pickTarget(s, idx, sel, out) {
     const p = s.players[idx];
     const selA = sel[0];
     const selB = sel[1];
+    const selS = sel[SEL_STAR] || 0;
     let best = 0;
     let bestCost = Infinity;
     let bx = p.x;
     let by = p.y;
+    let br = C.PLAYER_R + C.STAR_R;
     for (let k = 0; k < s.stars.length; k++) {
       const st = s.stars[k];
+      const tier = Sim.starTier(st);
       const dx = st.x - p.x;
       const dy = st.y - p.y;
       const myD = Math.sqrt(dx * dx + dy * dy);
-      const cost = myD + rivalCost(s, idx, st.x, st.y, myD, selA, selB);
+      const cost = myD + rivalCost(s, idx, st.x, st.y, myD, selA, selB) - selS * (tier.points / C.STAR_POINTS - 1);
       if (cost < bestCost) {
         bestCost = cost;
         best = k;
         bx = st.x;
         by = st.y;
+        br = C.PLAYER_R + tier.r;
       }
     }
     const ups = s.powerups;
@@ -108,12 +114,14 @@
           best = -1 - k;
           bx = u.x;
           by = u.y;
+          br = C.PLAYER_R + C.POWER_R;
         }
       }
     }
     if (out) {
       out.x = bx;
       out.y = by;
+      out.r = p.magnet > 0 && best >= 0 ? C.MAGNET_R : br;
     }
     return best;
   }
@@ -218,11 +226,18 @@
 
   // Genomas de versiones anteriores -> genoma actual, sin cambiar cómo se comportan:
   //   422 = red de 32 entradas, sin criterio          424 = lo mismo + criterio de rivales (A, B)
-  // Las entradas nuevas (efectos propios) entran con peso 0 y las mejoras con valor 0.
+  //   467 = red actual, sin el peso del valor de las estrellas
+  // Las entradas nuevas (efectos propios) entran con peso 0, y las mejoras y el valor de las
+  // estrellas, con 0.
   const OLD_IN = 32;
   const OLD_NET = (OLD_IN + 1) * N_HID + (N_HID + 1) * N_OUT;
   function upgrade(weights) {
     if (weights.length === N_W) return Float64Array.from(weights);
+    if (weights.length === N_W - 1) {
+      const same = new Float64Array(N_W);
+      same.set(weights);
+      return same;
+    }
     if (weights.length !== OLD_NET && weights.length !== OLD_NET + 2) {
       throw new Error('Se esperaban ' + N_W + ' pesos y hay ' + weights.length);
     }
@@ -293,7 +308,8 @@
     N_NET: N_NET,
     N_SEL: N_SEL,
     SEL_POWER: SEL_POWER,
-    OLD_SIZES: [OLD_NET, OLD_NET + 2],
+    SEL_STAR: SEL_STAR,
+    OLD_SIZES: [OLD_NET, OLD_NET + 2, N_W - 1],
     SENSE_RANGE: SENSE_RANGE,
     pickTarget: pickTarget,
     targetStar: targetStar,

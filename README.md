@@ -16,13 +16,21 @@ Los bots no están programados a mano: son redes neuronales pequeñas que aprend
 - Tienes 3 vidas (se puede elegir de 1 a 5). Cada impacto quita una y te deja 1,5 s de
   invulnerabilidad.
 - Siempre hay **3 estrellas** en la arena; cuando alguien coge una, aparece otra. Nunca aparecen
-  encima ni cerca de un jugador (cuantos más jugadores, más lejos de todos).
-- Puntos: 1 por cada tick en pie (60 por segundo) y **300 por estrella**.
-- La ronda acaba cuando solo queda uno en pie. **Gana quien más puntos tiene**, no necesariamente
-  quien más aguanta: ir a por las estrellas es arriesgado y rentable.
-- Los proyectiles salen cada vez más rápido y más seguidos. Todos son rojos; los que llevan un
-  **anillo blanco rebotan** en las paredes y los más oscuros vienen en **ráfagas de tres**.
-- Antes de empezar se elige su dificultad: **Suave**, **Normal**, **Intensa** o **Imposible**.
+  encima ni cerca de un jugador (cuantos más jugadores, más lejos de todos). Las hay de tres
+  tamaños: la **grande ámbar** vale 150, la **dorada** 300 y la **pequeña azul** 600 (y hay que
+  acercarse más para cogerla).
+- Puntos: 1 por cada tick en pie (60 por segundo) más las estrellas.
+- **Racha**: si coges estrellas seguidas (menos de 3 s entre una y otra), desde la tercera valen
+  el doble y desde la sexta, el triple.
+- **Gana quien más puntos tiene** cuando solo queda uno en pie, no necesariamente quien más
+  aguanta. Pero si el último en pie va por detrás, tiene 10 s de **prórroga** para remontar.
+- Los proyectiles salen cada vez más rápido y más seguidos, y todos son rojos. Su dificultad se
+  elige antes de empezar, y cada nivel añade enemigos al anterior:
+  - **Suave**: solo los normales, que cruzan en línea recta.
+  - **Normal**: además, los que **rebotan** en las paredes (anillo blanco) y las **ráfagas** de tres.
+  - **Intensa**: además, **minas** (llegan a un punto, se quedan paradas 4 s y desaparecen) y
+    **zigzags** (avanzan serpenteando).
+  - **Imposible**: además, **pesados** (grandes, lentos, con un «2»: quitan dos vidas).
 
 ### Mejoras
 
@@ -123,28 +131,30 @@ mutan con ruido gaussiano. Ha tenido tres fases:
    merecen el desvío.
 
 Resultados jugando solos, en 60 partidas que ningún bot había visto, con las reglas de referencia
-(3 estrellas, 3 vidas, proyectiles normales, con mejoras). Detalle por generación en
-`train/results/` y en `LOG.md`.
+(3 vidas, proyectiles normales, con mejoras). Detalle por generación en `train/results/` y en
+`LOG.md`.
 
-| jugador | puntos | aguanta |
-|---|---:|---:|
-| Quieto | 828 | 14 s |
-| Aleatorio | 1376 | 20 s |
-| Red, generación 6 (nivel Fácil, con 150 ms de reacción) | 3533 | 23 s |
-| Red, generación 40 (nivel Normal, con 100 ms de reacción) | 7349 | 31 s |
-| Red, campeón final con 100 ms de reacción (nivel Difícil) | 10954 | 42 s |
-| **Red, campeón final (nivel Experto)** | **17197** | **60 s** |
-| **Modo Dios** (planificador; 20 partidas) | **72190** | **212 s** |
+| jugador | puntos | aguanta | estrellas |
+|---|---:|---:|---:|
+| Red, generación 6 (nivel Fácil, con 150 ms de reacción) | 4203 | 22 s | 6 |
+| Red, generación 40 (nivel Normal, con 100 ms de reacción) | 15778 | 33 s | 19 |
+| Red, campeón final con 100 ms de reacción (nivel Difícil) | 25205 | 41 s | 26 |
+| **Red, campeón final (nivel Experto)** | **40687** | **58 s** | **40** |
+| **Modo Dios** (planificador; 20 partidas) | **184558** | **208 s** | **168** |
 
-(Las dos primeras filas se midieron antes de que existieran las mejoras; quieto o al azar apenas
-cambian.) Y unos contra otros, que es lo que importa en una partida de verdad, en 80 partidas de 4
-bots, dos contra dos:
+Los puntos son tan altos por la racha: quien encadena estrellas las cobra al triple. Un jugador
+que solo esquiva, sin ir a por ninguna, no pasa de unos 4500 puntos aunque sea el último en pie.
 
-| quién | contra quién | puntos | rondas ganadas |
-|---|---|---|---:|
-| campeones de la fase 2 | campeones de la fase 1 | 14688 vs 11269 | 96 % |
-| campeones de la fase 3 | campeones de la fase 2 | 14735 vs 12629 | 85 % |
-| un Modo Dios | tres campeones de la fase 3 (20 partidas) | 23815 vs 13866 | 20 de 20 |
+Y unos contra otros, que es lo que importa en una partida de verdad (partidas de 4 bots):
+
+| quién | contra quién | rondas ganadas |
+|---|---|---:|
+| campeones de la fase 2 | campeones de la fase 1 | 96 % de 80 |
+| campeones de la fase 3 | campeones de la fase 2 | 85 % de 80 |
+| un Modo Dios | tres campeones de la fase 3 | 20 de 20 |
+| el mejor «campero» posible (solo esquiva) | 1, 3 o 5 bots Experto | 0 de 30 en cada caso |
+
+(Las tres primeras filas se midieron al acabar cada fase, con las reglas de ese momento.)
 
 ### El Modo Dios
 

@@ -7,7 +7,7 @@
   <meta name="description" content="Esquiva: arcade de reflejos para 2-6 amigos, con bots entrenados por neuroevolución.">
   <title>Esquiva</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0d18'/%3E%3Ccircle cx='12' cy='19' r='7' fill='%2338e1ff'/%3E%3Ccircle cx='23' cy='9' r='5' fill='%23ff4d5e'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="css/style.css?v=14">
+  <link rel="stylesheet" href="css/style.css?v=15">
 </head>
 <body>
   <div id="stage">
@@ -91,8 +91,9 @@
       <h2>Cómo se juega</h2>
       <ul class="help-list">
         <li>Muévete con <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> o las flechas (en móvil, arrastra el dedo). <kbd>P</kbd> pausa, <kbd>M</kbd> sonido, <kbd>Esc</kbd> salir.</li>
-        <li>Cada segundo en pie da 60 puntos y cada <b>estrella</b> 300. La ronda acaba cuando queda uno en pie y <b>gana quien más puntos tiene</b>.</li>
-        <li>Los proyectiles rojos quitan una vida. Los que llevan un <b>anillo blanco rebotan</b> en las paredes; los oscuros vienen en <b>ráfagas de tres</b>.</li>
+        <li>Cada segundo en pie da 60 puntos. Las <b>estrellas</b>: la grande ámbar 150, la dorada 300 y la <b>pequeña azul 600</b>. Coger varias seguidas (menos de 3 s entre una y otra) hace <b>racha</b>: desde la tercera valen el doble y desde la sexta, el triple.</li>
+        <li><b>Gana quien más puntos tiene</b> cuando queda uno en pie. Si el último va por detrás, tiene 10 s de <b>prórroga</b> para remontar.</li>
+        <li>Los proyectiles rojos quitan una vida. Con <b>anillo blanco rebotan</b>; los oscuros vienen en <b>ráfagas</b>. En Intensa hay además <b>minas</b> (se quedan paradas) y <b>zigzags</b>; en Imposible, <b>pesados</b>, que quitan dos.</li>
       </ul>
       <h3>Mejoras</h3>
       <ul id="help-powers" class="help-powers"></ul>
@@ -243,16 +244,16 @@
     <div id="toast" class="hidden"></div>
   </div>
 
-  <script src="js/sim.js?v=14"></script>
-  <script src="js/nn.js?v=14"></script>
-  <script src="js/god.js?v=14"></script>
-  <script src="js/netcode.js?v=14"></script>
-  <script src="js/stats.js?v=14"></script>
-  <script src="js/vendor/peerjs.min.js?v=14"></script>
-  <script src="js/net.js?v=14"></script>
-  <script src="js/render.js?v=14"></script>
-  <script src="js/input.js?v=14"></script>
-  <script src="js/audio.js?v=14"></script>
-  <script src="js/main.js?v=14"></script>
+  <script src="js/sim.js?v=15"></script>
+  <script src="js/nn.js?v=15"></script>
+  <script src="js/god.js?v=15"></script>
+  <script src="js/netcode.js?v=15"></script>
+  <script src="js/stats.js?v=15"></script>
+  <script src="js/vendor/peerjs.min.js?v=15"></script>
+  <script src="js/net.js?v=15"></script>
+  <script src="js/render.js?v=15"></script>
+  <script src="js/input.js?v=15"></script>
+  <script src="js/audio.js?v=15"></script>
+  <script src="js/main.js?v=15"></script>
 </body>
 </html>

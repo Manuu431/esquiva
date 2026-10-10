@@ -15,7 +15,7 @@ const SECT = 3; // valores por sector
 
 test('la red tiene el tamaño documentado', () => {
   assert.equal(NN.N_IN, 35);
-  assert.equal(NN.N_SEL, 2 + Sim.POWERS.length);
+  assert.equal(NN.N_SEL, 2 + Sim.POWERS.length + 1);
   assert.equal(NN.N_NET, (NN.N_IN + 1) * NN.N_HID + (NN.N_HID + 1) * NN.N_OUT);
   assert.equal(NN.N_W, NN.N_NET + NN.N_SEL);
 });
@@ -222,7 +222,8 @@ test('mejoras como objetivo: el bot va a por las que valora, si le compensa el d
   sel[NN.SEL_POWER + 2] = 150;
   const out = { x: 0, y: 0 };
   assert.equal(NN.pickTarget(s, 0, sel, out), -1, 'vale 150 px: va a por ella');
-  assert.deepEqual(out, { x: 400, y: 0 });
+  assert.deepEqual({ x: out.x, y: out.y }, { x: 400, y: 0 });
+  assert.equal(out.r, C.PLAYER_R + C.POWER_R, 'y sabe a qué distancia la coge');
   // Si caduca antes de que pueda llegar, no hace el viaje.
   s.powerups[0].ttl = 30;
   assert.equal(NN.pickTarget(s, 0, sel, null), 0);
@@ -232,6 +233,29 @@ test('mejoras como objetivo: el bot va a por las que valora, si le compensa el d
   assert.equal(NN.pickTarget(s, 0, sel, null), 0);
   me.lives = 2;
   assert.equal(NN.pickTarget(s, 0, sel, null), -1);
+});
+
+test('valor de las estrellas: el bot puede preferir una pequeña (600) algo más lejana', () => {
+  const { s } = rivalScene();
+  s.players[1].alive = false;
+  s.stars = [{ x: 600, y: 300, t: 1 }, { x: 150, y: 300, t: 2 }, { x: 400, y: 560, t: 0 }]; // a 200 (normal), 250 (pequeña) y 260 (grande)
+  const sel = new Float64Array(NN.N_SEL);
+  assert.equal(NN.pickTarget(s, 0, sel, null), 0, 'sin criterio, la más cercana');
+  sel[NN.SEL_STAR] = 100; // 100 px de desvío por cada "estrella normal" de más
+  const out = { x: 0, y: 0, r: 0 };
+  assert.equal(NN.pickTarget(s, 0, sel, out), 1, 'la pequeña está 50 px más lejos pero vale el doble');
+  assert.equal(out.r, C.PLAYER_R + Sim.STAR_TIERS[2].r, 'y hay que acercarse más para cogerla');
+  // La grande vale la mitad: con este criterio, cuenta como 50 px más lejos.
+  s.stars = [{ x: 600, y: 300, t: 0 }, { x: 160, y: 300, t: 1 }, { x: 400, y: 900, t: 1 }]; // grande a 200, normal a 240
+  assert.equal(NN.pickTarget(s, 0, sel, null), 1);
+});
+
+test('un genoma de la versión anterior (sin el valor de las estrellas) se convierte añadiendo un 0', () => {
+  const viejo = new Float64Array(NN.N_W - 1).map((_, i) => Math.sin(i));
+  const nuevo = NN.upgrade(viejo);
+  assert.equal(nuevo.length, NN.N_W);
+  assert.equal(nuevo[NN.N_W - 1], 0);
+  assert.deepEqual(Array.from(nuevo.slice(0, NN.N_W - 1)), Array.from(viejo));
 });
 
 test('intangible: el bot deja de percibir los proyectiles como amenaza', () => {

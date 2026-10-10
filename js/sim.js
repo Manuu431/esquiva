@@ -44,10 +44,29 @@
     BURST_FROM: 20, // ...y las ráfagas de tres en abanico
     BURST_CHANCE: 0.1,
     BURST_ANGLE: 0.24, // rad entre los proyectiles de una ráfaga
+    // Enemigos que solo salen en las dificultades altas (ver HAZARD_LEVELS):
+    MINE_FROM: 8, // mina: llega a un punto, se queda parada unos segundos y desaparece
+    MINE_CHANCE: 0.08,
+    MINE_HOLD: 4, // s que se queda parada
+    ZIGZAG_FROM: 15, // zigzag: avanza serpenteando
+    ZIGZAG_CHANCE: 0.1,
+    ZIGZAG_AMP: 38, // px de vaivén a cada lado
+    ZIGZAG_FREQ: 5, // rad/s
+    HEAVY_FROM: 5, // pesado: grande, lento y quita dos vidas
+    HEAVY_CHANCE: 0.07,
+    HEAVY_R: 20,
+    HEAVY_SPEED: 0.6,
+    HEAVY_DAMAGE: 2,
 
     STAR_COUNT: 3, // estrellas a la vez: con una sola, se la lleva quien la tenga más cerca
-    STAR_R: 10,
-    STAR_POINTS: 300, // un tick vivo = 1 punto; una estrella = 5 s
+    STAR_R: 10, // radio y puntos de la estrella normal (ver STAR_TIERS para las tres)
+    STAR_POINTS: 300, // un tick vivo = 1 punto; una estrella normal = 5 s
+    // Racha: coger estrellas seguidas multiplica lo que valen.
+    COMBO_WINDOW: 180, // ticks (3 s) para coger la siguiente sin perder la racha
+    COMBO_X2: 3, // estrellas seguidas a partir de las cuales valen el doble...
+    COMBO_X3: 6, // ...y el triple
+    // Prórroga: si el último en pie va por detrás en puntos, tiene este tiempo para remontar.
+    OVERTIME_TICKS: 600,
     STAR_MARGIN: 50,
     STAR_RESPAWN_DIST: 180, // una estrella no reaparece a menos de esto de quien la cogió
     STAR_MIN_SEP: 140, // ni a menos de esto de otra estrella o de una mejora
@@ -71,13 +90,32 @@
     HAZARD_DEFAULT: 1, // dificultad de los proyectiles por defecto (índice de HAZARD_LEVELS)
   });
 
-  // Dificultad de los proyectiles: multiplica su velocidad y su ritmo de aparición.
+  // Dificultad de los proyectiles: multiplica su velocidad y su ritmo de aparición, y decide qué
+  // enemigos especiales salen. Cada nivel añade tipos al anterior.
   const HAZARD_LEVELS = Object.freeze([
-    Object.freeze({ speed: 0.8, rate: 0.7 }), // suave
-    Object.freeze({ speed: 1, rate: 1 }), // normal
-    Object.freeze({ speed: 1.2, rate: 1.4 }), // intensa
-    Object.freeze({ speed: 1.5, rate: 2.4 }), // imposible
+    Object.freeze({ speed: 0.8, rate: 0.7, bounce: false, mines: false, heavy: false }), // suave: solo normales
+    Object.freeze({ speed: 1, rate: 1, bounce: true, mines: false, heavy: false }), // normal: + rebotan y ráfagas
+    Object.freeze({ speed: 1.2, rate: 1.4, bounce: true, mines: true, heavy: false }), // intensa: + minas y zigzag
+    Object.freeze({ speed: 1.5, rate: 2.4, bounce: true, mines: true, heavy: true }), // imposible: + pesados
   ]);
+  // Tipos de proyectil (campo k).
+  const K_NORMAL = 0;
+  const K_BOUNCER = 1;
+  const K_BURST = 2;
+  const K_HEAVY = 3;
+  const K_MINE = 4;
+  const K_ZIGZAG = 5;
+
+  // Estrellas: cuanto más pequeña, más difícil de coger y más puntos. `weight` = cuánto sale.
+  const STAR_TIERS = Object.freeze([
+    Object.freeze({ r: 15, points: 150, weight: 0.2 }), // grande
+    Object.freeze({ r: 10, points: 300, weight: 0.55 }), // normal
+    Object.freeze({ r: 6, points: 600, weight: 0.25 }), // pequeña
+  ]);
+
+  function starTier(st) {
+    return STAR_TIERS[st.t] || STAR_TIERS[1];
+  }
 
   // Mejoras, por índice. `ticks` = cuánto dura el efecto (0 = instantáneo); `weight` = cuánto sale.
   const POWERS = Object.freeze([
@@ -148,6 +186,7 @@
       powerups: [], // mejoras en la arena: { x, y, type, ttl }
       spawnTimer: C.SPAWN_GRACE,
       powerTimer: C.POWER_FIRST,
+      overtime: -1, // prórroga: -1 = no hay; si no, ticks que le quedan al último en pie
       over: false,
       winner: -1,
       events: [],
@@ -173,10 +212,12 @@
         shield: 0,
         double: 0,
         magnet: 0,
+        combo: 0, // estrellas seguidas que lleva (racha)
+        comboT: 0, // ticks que le quedan para coger otra sin perderla
       });
     }
     for (let k = 0; k < C.STAR_COUNT; k++) {
-      s.stars.push({ x: -1e4, y: -1e4 });
+      s.stars.push({ x: -1e4, y: -1e4, t: 1 });
       placeStar(s, k, -1);
     }
     return s;
@@ -245,6 +286,16 @@
     const spot = findSpot(s, avoidIdx, k);
     s.stars[k].x = spot.x;
     s.stars[k].y = spot.y;
+    // De qué tamaño sale: al azar según su peso.
+    let roll = rand(s);
+    let t = 0;
+    while (t < STAR_TIERS.length - 1 && roll >= STAR_TIERS[t].weight) roll -= STAR_TIERS[t++].weight;
+    s.stars[k].t = t;
+  }
+
+  // Por cuánto se multiplican las estrellas con la racha que lleva el jugador.
+  function comboMult(p) {
+    return p.combo >= C.COMBO_X3 ? 3 : p.combo >= C.COMBO_X2 ? 2 : 1;
   }
 
   // Punto del perímetro (justo fuera de la arena) para una fracción u en [0,1).
@@ -306,24 +357,70 @@
     const vx = (dx / d) * speed;
     const vy = (dy / d) * speed;
 
-    // k = tipo (0 normal, 1 rebota, 2 de ráfaga); b = rebotes que le quedan.
-    const roll = rand(s);
-    if (t >= C.BOUNCER_FROM && roll < C.BOUNCER_CHANCE) {
-      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: 1, b: 1 + (rand(s) < 0.4 ? 1 : 0) });
-    } else if (t >= C.BURST_FROM && roll < C.BOUNCER_CHANCE + C.BURST_CHANCE) {
+    // k = tipo; b = rebotes que le quedan. Qué tipos pueden salir depende de la dificultad; se
+    // reparte un único número al azar entre los que tocan (lo que sobra es un proyectil normal).
+    const lv = hazardLevel(s.hazard);
+    let roll = rand(s);
+    const pick = function (enabled, from, chance) {
+      if (!enabled || t < from) return false;
+      if (roll < chance) return true;
+      roll -= chance;
+      return false;
+    };
+    if (pick(lv.bounce, C.BOUNCER_FROM, C.BOUNCER_CHANCE)) {
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: K_BOUNCER, b: 1 + (rand(s) < 0.4 ? 1 : 0) });
+    } else if (pick(lv.bounce, C.BURST_FROM, C.BURST_CHANCE)) {
       // Ráfaga: tres pequeños en abanico desde el mismo punto.
       r = C.HAZ_R_MIN + 1;
-      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: 2, b: 0 });
-      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx * BURST_COS - vy * BURST_SIN, vy: vx * BURST_SIN + vy * BURST_COS, r: r, k: 2, b: 0 });
-      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx * BURST_COS + vy * BURST_SIN, vy: -vx * BURST_SIN + vy * BURST_COS, r: r, k: 2, b: 0 });
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: K_BURST, b: 0 });
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx * BURST_COS - vy * BURST_SIN, vy: vx * BURST_SIN + vy * BURST_COS, r: r, k: K_BURST, b: 0 });
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx * BURST_COS + vy * BURST_SIN, vy: -vx * BURST_SIN + vy * BURST_COS, r: r, k: K_BURST, b: 0 });
+    } else if (pick(lv.mines, C.MINE_FROM, C.MINE_CHANCE)) {
+      // Mina: va hasta el punto al que apuntaba (dentro de la arena), se para y aguanta un rato.
+      const mx = Math.max(40, Math.min(C.W - 40, tx));
+      const my = Math.max(40, Math.min(C.H - 40, ty));
+      const md = Math.sqrt((mx - _pt.x) * (mx - _pt.x) + (my - _pt.y) * (my - _pt.y)) || 1;
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: ((mx - _pt.x) / md) * speed, vy: ((my - _pt.y) / md) * speed, r: 11, k: K_MINE, b: 0, e1: md / speed, e2: C.MINE_HOLD, e3: 0 });
+    } else if (pick(lv.mines, C.ZIGZAG_FROM, C.ZIGZAG_CHANCE)) {
+      // Zigzag: e1, e2 = velocidad de avance (fija); e3 = fase del vaivén. vx, vy llevan la suma.
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: 9, k: K_ZIGZAG, b: 0, e1: vx, e2: vy, e3: 0 });
+    } else if (pick(lv.heavy, C.HEAVY_FROM, C.HEAVY_CHANCE)) {
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx * C.HEAVY_SPEED, vy: vy * C.HEAVY_SPEED, r: C.HEAVY_R, k: K_HEAVY, b: 0 });
     } else {
-      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: 0, b: 0 });
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: K_NORMAL, b: 0 });
     }
   }
 
   // Avanza un proyectil dt segundos. Los que rebotan cambian de sentido al llegar a una pared
   // mientras les queden rebotes; después salen de la arena como los demás.
   function moveHazard(z, dt) {
+    if (z.k === K_MINE) {
+      // e1 = segundos que le quedan de viaje; e2 = segundos que le quedan parada.
+      if (z.e1 > 0) {
+        const go = z.e1 < dt ? z.e1 : dt;
+        z.x += z.vx * go;
+        z.y += z.vy * go;
+        z.e1 -= dt;
+        if (z.e1 <= 0) {
+          z.e2 += z.e1; // lo que sobra del tick ya cuenta como parada
+          z.e1 = 0;
+          z.vx = 0;
+          z.vy = 0;
+        }
+      } else {
+        z.e2 -= dt;
+      }
+      if (z.e2 <= 0) z.dead = true;
+      return;
+    }
+    if (z.k === K_ZIGZAG) {
+      // Avance fijo (e1, e2) más un vaivén perpendicular: vx, vy son la velocidad de este instante.
+      const sp = Math.sqrt(z.e1 * z.e1 + z.e2 * z.e2) || 1;
+      const side = C.ZIGZAG_AMP * C.ZIGZAG_FREQ * Math.cos(z.e3);
+      z.vx = z.e1 + (-z.e2 / sp) * side;
+      z.vy = z.e2 + (z.e1 / sp) * side;
+      z.e3 += C.ZIGZAG_FREQ * dt;
+    }
     z.x += z.vx * dt;
     z.y += z.vy * dt;
     if (z.b > 0) {
@@ -350,22 +447,38 @@
     }
   }
 
-  const _hz = { x: 0, y: 0, vx: 0, vy: 0, r: 0, b: 0 };
+  const _hz = { x: 0, y: 0, vx: 0, vy: 0, r: 0, k: 0, b: 0, e1: 0, e2: 0, e3: 0, dead: false };
+
+  // Copia un proyectil con todo lo que hace falta para seguir simulándolo por separado.
+  function copyHazard(z, out) {
+    out.x = z.x;
+    out.y = z.y;
+    out.vx = z.vx;
+    out.vy = z.vy;
+    out.r = z.r;
+    out.k = z.k | 0;
+    out.b = z.b | 0;
+    out.e1 = z.e1 || 0;
+    out.e2 = z.e2 || 0;
+    out.e3 = z.e3 || 0;
+    out.dead = false;
+    return out;
+  }
+
+  // ¿Va en línea recta sin sorpresas? (Los que rebotan, las minas y los zigzag, no.)
+  function isLinear(z) {
+    return !(z.b > 0) && z.k !== K_MINE && z.k !== K_ZIGZAG;
+  }
 
   // Dónde estará un proyectil dentro de `secs` segundos (sin modificarlo). Lo usan el dibujo
   // (para adelantar los proyectiles en el invitado) y los bots que planifican.
   function hazardPos(z, secs, out) {
-    if (!(z.b > 0)) {
+    if (isLinear(z)) {
       out.x = z.x + z.vx * secs;
       out.y = z.y + z.vy * secs;
       return out;
     }
-    _hz.x = z.x;
-    _hz.y = z.y;
-    _hz.vx = z.vx;
-    _hz.vy = z.vy;
-    _hz.r = z.r;
-    _hz.b = z.b;
+    copyHazard(z, _hz);
     let left = secs;
     while (left > 1e-9) {
       const dt = left > C.DT ? C.DT : left;
@@ -477,6 +590,7 @@
       if (p.ghost > 0) p.ghost--;
       if (p.shield > 0) p.shield--;
       if (p.magnet > 0) p.magnet--;
+      if (p.comboT > 0 && --p.comboT === 0) p.combo = 0; // se le pasó el tiempo: adiós racha
       p.score += p.double > 0 ? 2 : 1;
       if (p.double > 0) p.double--;
     }
@@ -492,7 +606,7 @@
     for (let h = hz.length - 1; h >= 0; h--) {
       const z = hz[h];
       moveHazard(z, C.DT);
-      let gone = z.x < -m || z.x > C.W + m || z.y < -m || z.y > C.H + m;
+      let gone = z.dead === true || z.x < -m || z.x > C.W + m || z.y < -m || z.y > C.H + m;
       if (!gone) {
         for (let i = 0; i < np; i++) {
           const p = players[i];
@@ -507,7 +621,7 @@
               p.inv = C.SHIELD_INVULN;
               s.events.push({ type: 'shield', p: i, x: p.x, y: p.y });
             } else {
-              p.lives--;
+              p.lives -= z.k === K_HEAVY ? C.HEAVY_DAMAGE : 1;
               p.inv = C.INVULN_TICKS;
               s.events.push({ type: 'hit', p: i, x: p.x, y: p.y });
               if (p.lives <= 0) {
@@ -529,9 +643,10 @@
 
     // Estrellas: si dos jugadores tocan la misma en el mismo tick, se la lleva el más cercano.
     // Con imán se cogen desde más lejos.
-    const sr = C.PLAYER_R + C.STAR_R;
     for (let k = 0; k < s.stars.length; k++) {
       const st = s.stars[k];
+      const tier = starTier(st);
+      const sr = C.PLAYER_R + tier.r;
       let best = -1;
       let bestD = Infinity;
       for (let i = 0; i < np; i++) {
@@ -548,9 +663,13 @@
       }
       if (best >= 0) {
         const p = players[best];
-        p.score += p.double > 0 ? 2 * C.STAR_POINTS : C.STAR_POINTS;
+        // La racha sube con cada estrella y multiplica a partir de la tercera seguida.
+        p.combo++;
+        p.comboT = C.COMBO_WINDOW;
+        const mult = comboMult(p) * (p.double > 0 ? 2 : 1);
+        p.score += tier.points * mult;
         p.stars++;
-        s.events.push({ type: 'star', p: best, x: st.x, y: st.y });
+        s.events.push({ type: 'star', p: best, x: st.x, y: st.y, k: st.t | 0 });
         placeStar(s, k, best);
       }
     }
@@ -590,9 +709,26 @@
       }
     }
 
-    // Fin de ronda: en solitario al morir; con varios, cuando queda uno en pie (o ninguno).
-    // Gana quien más puntos tiene: aguantar puntúa, pero las estrellas también.
-    if (aliveCount(s) <= (np === 1 ? 0 : 1)) {
+    // Fin de ronda. Gana quien más puntos tiene: aguantar puntúa, pero las estrellas también.
+    //  - En solitario, al morir.
+    //  - Con varios, cuando queda uno en pie... si ya va primero. Si va por detrás hay prórroga:
+    //    tiene unos segundos para remontar, y la ronda acaba cuando lo consigue, cae o se agota
+    //    el tiempo. Así ser el último en pie vale algo, y a quien va ganando no le sale a cuenta
+    //    dejarse matar para cerrar la ronda.
+    const alive = aliveCount(s);
+    let end = alive === 0;
+    if (!end && np > 1 && alive === 1) {
+      const leader = ranking(s)[0];
+      if (players[leader].alive) {
+        end = true;
+      } else if (s.overtime < 0) {
+        s.overtime = C.OVERTIME_TICKS;
+        s.events.push({ type: 'overtime', p: leader, x: 0, y: 0 });
+      } else if (--s.overtime <= 0) {
+        end = true;
+      }
+    }
+    if (end) {
       s.over = true;
       s.winner = ranking(s)[0];
       s.events.push({ type: 'over', p: s.winner, x: 0, y: 0 });
@@ -628,7 +764,12 @@
   return {
     C: C,
     HAZARD_LEVELS: HAZARD_LEVELS,
+    STAR_TIERS: STAR_TIERS,
     POWERS: POWERS,
+    starTier: starTier,
+    comboMult: comboMult,
+    copyHazard: copyHazard,
+    isLinear: isLinear,
     starPlayerDist: starPlayerDist,
     createState: createState,
     step: step,

@@ -27,6 +27,7 @@
     selB: 5,
     // Lo que vale cada mejora, en px de desvío: turbo, fantasma, escudo, corazón, bomba, doble, imán.
     powers: [140, 180, 260, 380, 120, 320, 220],
+    star: 110, // px de desvío que compensa una estrella que vale el doble que la normal
   };
 
   function createBot(params) {
@@ -36,13 +37,15 @@
     sel[0] = P.selA;
     sel[1] = P.selB;
     for (let k = 0; k < P.powers.length; k++) sel[NN.SEL_POWER + k] = P.powers[k];
+    sel[NN.SEL_STAR] = P.star;
 
     let cap = 128;
     let hx = new Float32Array(cap * H); // posición prevista de cada proyectil en cada tick
     let hy = new Float32Array(cap * H);
     let hr = new Float32Array(cap);
-    const copy = { x: 0, y: 0, vx: 0, vy: 0, r: 0, b: 0 };
-    const target = { x: 0, y: 0 };
+    let hw = new Float32Array(cap); // cuánto duele cada proyectil (los pesados, el doble)
+    const copy = { x: 0, y: 0, vx: 0, vy: 0, r: 0, k: 0, b: 0, e1: 0, e2: 0, e3: 0, dead: false };
+    const target = { x: 0, y: 0, r: 0 };
     const action = { mx: 0, my: 0 };
     const firstCost = new Float64Array(N_MOVES);
     const midX = new Float64Array(N_MOVES);
@@ -83,7 +86,7 @@
             const d2 = dx * dx + dy * dy;
             if (d2 < lim * lim) {
               const gap = Math.sqrt(d2) - hr[h] - R;
-              if (gap < 0) cost += (p.shield >= t ? P.hit * 0.4 : P.hit) / t;
+              if (gap < 0) cost += ((p.shield >= t ? P.hit * 0.4 : P.hit) * hw[h]) / t;
               else cost += ((P.margin - gap) * P.near) / t;
             }
           }
@@ -111,7 +114,7 @@
     return function act(s, idx) {
       const p = s.players[idx];
       NN.pickTarget(s, idx, sel, target);
-      grab = p.magnet > 0 ? C.MAGNET_R : C.PLAYER_R + C.STAR_R;
+      grab = target.r;
 
       // 1. Dónde estará cada proyectil en cada tick del horizonte. Se descartan los que no
       //    pueden alcanzar al jugador en ese tiempo, por lejos que este se mueva.
@@ -121,6 +124,7 @@
         hx = new Float32Array(cap * H);
         hy = new Float32Array(cap * H);
         hr = new Float32Array(cap);
+        hw = new Float32Array(cap);
       }
       n = 0;
       const reach = C.PLAYER_SPEED * C.TURBO_SPEED * H * C.DT + P.margin + C.PLAYER_R;
@@ -131,17 +135,15 @@
         const far = Math.sqrt(dx * dx + dy * dy) - Math.sqrt(z.vx * z.vx + z.vy * z.vy) * H * C.DT - z.r - reach;
         if (far > 0) continue;
         hr[n] = z.r * C.HIT_FORGIVE;
-        if (z.b > 0) {
-          copy.x = z.x;
-          copy.y = z.y;
-          copy.vx = z.vx;
-          copy.vy = z.vy;
-          copy.r = z.r;
-          copy.b = z.b;
+        hw[n] = z.k === 3 ? C.HEAVY_DAMAGE : 1;
+        if (!Sim.isLinear(z)) {
+          // Rebotes, minas y zigzag: se simula el proyectil tick a tick, igual que hará el juego.
+          Sim.copyHazard(z, copy);
           for (let t = 0; t < H; t++) {
-            Sim.moveHazard(copy, C.DT);
-            hx[t * cap + n] = copy.x;
-            hy[t * cap + n] = copy.y;
+            if (!copy.dead) Sim.moveHazard(copy, C.DT);
+            // Una mina que ya ha desaparecido deja de contar: se manda lejos.
+            hx[t * cap + n] = copy.dead ? 1e6 : copy.x;
+            hy[t * cap + n] = copy.dead ? 1e6 : copy.y;
           }
         } else {
           for (let t = 0; t < H; t++) {

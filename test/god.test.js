@@ -81,8 +81,42 @@ test('Modo Dios aprovecha el fantasma y va a por las mejoras que valora', () => 
   assert.ok(p.shield > 0, 'coge el escudo antes de ir a por las estrellas');
 });
 
+test('Modo Dios sobrevive al primer minuto en Imposible con todos los enemigos', () => {
+  let vivos = 0;
+  let vidas = 0;
+  for (const seed of [31, 32, 33, 34]) {
+    const s = Sim.createState({ seed: seed, hazard: 3 });
+    const bot = God.createBot();
+    while (!s.over && s.tick < 60 * 60) Sim.step(s, [bot(s, 0)]);
+    if (!s.over) vivos++;
+    vidas += s.players[0].lives;
+  }
+  assert.ok(vivos >= 3, 'sigue en pie al minuto en ' + vivos + ' de 4 partidas');
+  assert.ok(vidas >= 8, 'y conserva casi todas las vidas: ' + vidas + ' de 12');
+});
+
+test('Modo Dios esquiva las minas paradas y los zigzag', () => {
+  // Una mina parada justo en el camino recto hacia la única estrella que le interesa.
+  const s = Sim.createState({ seed: 3, powerups: false });
+  s.spawnTimer = 1e9;
+  const p = s.players[0];
+  p.x = 200;
+  p.y = 300;
+  s.stars.forEach((st) => {
+    st.x = 600;
+    st.y = 300;
+    st.t = 1;
+  });
+  s.hazards.push({ x: 400, y: 300, vx: 0, vy: 0, r: 11, k: 4, b: 0, e1: 0, e2: 30, e3: 0 });
+  s.hazards.push({ x: 800, y: 300, vx: -220, vy: 0, r: 9, k: 5, b: 0, e1: -220, e2: 0, e3: 0 });
+  const bot = God.createBot();
+  for (let t = 0; t < 200 && p.stars === 0; t++) Sim.step(s, [bot(s, 0)]);
+  assert.ok(p.stars >= 1, 'llega a la estrella');
+  assert.equal(p.lives, C.LIVES, 'rodeando la mina y sin que le dé el zigzag');
+});
+
 test('los parámetros por defecto del Modo Dios son coherentes', () => {
   assert.equal(God.DEFAULTS.powers.length, Sim.POWERS.length);
   assert.ok(God.DEFAULTS.turn <= God.DEFAULTS.horizon);
-  assert.equal(NN.N_SEL, 2 + God.DEFAULTS.powers.length);
+  assert.equal(NN.N_SEL, 2 + God.DEFAULTS.powers.length + 1);
 });

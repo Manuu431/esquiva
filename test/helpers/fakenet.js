@@ -125,9 +125,9 @@ function seenState(view) {
     maxLives: s.maxLives,
     // Los proyectiles, donde el invitado los dibuja: adelantados (y con sus rebotes).
     hazards: s.hazards.map(function (z) {
-      const c = { x: z.x, y: z.y, vx: z.vx, vy: z.vy, r: z.r, k: z.k, b: z.b };
+      const c = Sim.copyHazard(z, {});
       let left = view.hazExt;
-      while (left > 1e-9) {
+      while (left > 1e-9 && !c.dead) {
         const dt = Math.min(left, Sim.C.DT);
         Sim.moveHazard(c, dt);
         left -= dt;

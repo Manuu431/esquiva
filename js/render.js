@@ -18,7 +18,10 @@
   const glows = {};
   const _pos = { x: 0, y: 0 };
   let hpos = new Float64Array(256); // posiciones de los proyectiles en este frame
+  const HAZ_COLORS = ['#ff4d5e', '#ff4d5e', '#d92b4b', '#8f1027', '#c2183a', '#ff7a66'];
   // Color de cada mejora, en el orden de Sim.POWERS: turbo, fantasma, escudo, corazón, bomba, doble, imán.
+  // Estrellas, de grande a pequeña: ámbar (150), dorada (300) y azul claro (600).
+  const STAR_COLORS = ['#e8964a', '#ffd23f', '#9fe8ff'];
   const POWER_COLORS = ['#ffe14d', '#dfe4ff', '#4da3ff', '#ff4d5e', '#aab3d6', '#5dff8f', '#c77dff'];
 
   function init(c) {
@@ -104,7 +107,7 @@
         burst(e.x, e.y, COLORS[e.p % COLORS.length], 34, 320);
         burst(e.x, e.y, '#ffffff', 10, 160);
       } else if (e.type === 'star') {
-        burst(e.x, e.y, '#ffd23f', 12, 180);
+        burst(e.x, e.y, STAR_COLORS[e.k] || STAR_COLORS[1], e.k === 2 ? 20 : 12, 180);
       } else if (e.type === 'power') {
         burst(e.x, e.y, POWER_COLORS[e.k] || '#ffffff', 16, 200);
       } else if (e.type === 'shield') {
@@ -239,12 +242,16 @@
       const plExt = o.plExt || 0;
 
       // Estrella
-      ctx.fillStyle = '#ffd23f';
+      // Estrellas: el tamaño y el color dicen lo que valen (la pequeña azul, el doble que la dorada).
       for (let i = 0; i < view.stars.length; i++) {
         const st = view.stars[i];
-        const pulse = 1 + 0.12 * Math.sin(time * 5 + i * 2);
-        ctx.drawImage(glow('#ffd23f'), st.x - 30, st.y - 30, 60, 60);
-        starPath(st.x, st.y, C.STAR_R * 1.25 * pulse, time * 1.4 + i);
+        const tier = Sim.starTier(st);
+        const color = STAR_COLORS[st.t === undefined ? 1 : st.t] || STAR_COLORS[1];
+        const pulse = 1 + (st.t === 2 ? 0.22 : 0.12) * Math.sin(time * (st.t === 2 ? 8 : 5) + i * 2);
+        const g = tier.r * 3;
+        ctx.drawImage(glow(color), st.x - g, st.y - g, g * 2, g * 2);
+        starPath(st.x, st.y, tier.r * 1.25 * pulse, time * 1.4 + i);
+        ctx.fillStyle = color;
         ctx.fill();
       }
 
@@ -280,21 +287,53 @@
         ctx.lineTo(x - z.vx * 0.07, y - z.vy * 0.07);
         ctx.stroke();
       }
-      for (let kind = 0; kind < 3; kind++) {
-        ctx.fillStyle = kind === 2 ? '#d92b4b' : '#ff4d5e';
+      // Colores por tipo: normal, rebota, ráfaga, pesado (granate), mina y zigzag.
+      for (let kind = 0; kind < HAZ_COLORS.length; kind++) {
+        ctx.fillStyle = HAZ_COLORS[kind];
         ctx.beginPath();
         for (let i = 0; i < n; i++) {
           const z = hz[i];
           if ((z.k | 0) !== kind) continue;
-          ctx.moveTo(hpos[i * 2] + z.r, hpos[i * 2 + 1]);
-          ctx.arc(hpos[i * 2], hpos[i * 2 + 1], z.r, 0, TAU);
+          const x = hpos[i * 2];
+          const y = hpos[i * 2 + 1];
+          if (kind === 4) {
+            // Mina: con pinchos; parpadea cuando le queda poco.
+            if (z.e1 <= 0 && z.e2 < 1 && Math.floor(z.e2 * 10) % 2 === 0) continue;
+            for (let a = 0; a < 16; a++) {
+              const rr = a % 2 === 0 ? z.r * 1.45 : z.r * 0.85;
+              const px = x + Math.cos((a * Math.PI) / 8 + time) * rr;
+              const py = y + Math.sin((a * Math.PI) / 8 + time) * rr;
+              if (a === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+          } else {
+            ctx.moveTo(x + z.r, y);
+            ctx.arc(x, y, z.r, 0, TAU);
+          }
         }
         ctx.fill();
+      }
+      // Pesado: un aro negro grueso y un "2" para que se vea que quita dos vidas.
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '800 15px ' + FONT;
+      for (let i = 0; i < n; i++) {
+        const z = hz[i];
+        if (z.k !== 3) continue;
+        ctx.strokeStyle = '#1a0308';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(hpos[i * 2], hpos[i * 2 + 1], z.r - 2, 0, TAU);
+        ctx.stroke();
+        ctx.fillStyle = '#ffd9dc';
+        ctx.fillText('2', hpos[i * 2], hpos[i * 2 + 1] + 1);
       }
       ctx.fillStyle = '#ffd9dc';
       ctx.beginPath();
       for (let i = 0; i < n; i++) {
         const z = hz[i];
+        if (z.k === 3) continue; // el pesado lleva su número, no el núcleo claro
         ctx.moveTo(hpos[i * 2] + z.r * 0.4, hpos[i * 2 + 1]);
         ctx.arc(hpos[i * 2], hpos[i * 2 + 1], z.r * 0.4, 0, TAU);
       }
@@ -398,6 +437,16 @@
           ctx.arc(x, y, C.PLAYER_R + 7, 0, TAU);
           ctx.stroke();
         }
+        // Racha: el multiplicador de estrellas que lleva, a la izquierda.
+        const mult = Sim.comboMult(p);
+        if (mult > 1) {
+          ctx.font = '800 11px ' + FONT;
+          ctx.textAlign = 'right';
+          ctx.fillStyle = STAR_COLORS[1];
+          ctx.fillText('★x' + mult, x - C.PLAYER_R - 5, y + 4);
+          ctx.textAlign = 'center';
+          ctx.font = '600 11px ' + FONT;
+        }
         if (p.double > 0 && !ending(p.double)) {
           ctx.font = '800 11px ' + FONT;
           ctx.textAlign = 'left';
@@ -454,6 +503,17 @@
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     if (view) drawHud(view, meta, o);
 
+    // Prórroga: cuenta atrás grande arriba.
+    if (view && view.overtime > 0 && !view.over) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '800 26px ' + FONT;
+      ctx.fillStyle = 'rgba(255, 210, 63, 0.92)';
+      ctx.fillText('PRÓRROGA  ' + Math.ceil(view.overtime / C.TICK_HZ), C.W / 2, 58);
+      ctx.font = '600 13px ' + FONT;
+      ctx.fillStyle = 'rgba(232, 236, 255, 0.75)';
+      ctx.fillText('el último en pie puede remontar', C.W / 2, 82);
+    }
     if (o.dim) {
       // Exhibición detrás del menú: se oscurece para que no compita con él.
       ctx.fillStyle = 'rgba(9, 12, 24, 0.55)';
@@ -533,6 +593,7 @@
   window.Render = {
     COLORS: COLORS,
     POWER_COLORS: POWER_COLORS,
+    STAR_COLORS: STAR_COLORS,
     // Dibuja el icono de una mejora en otro canvas (para la ayuda del menú).
     drawPowerIcon: function (target, type) {
       const prev = ctx;

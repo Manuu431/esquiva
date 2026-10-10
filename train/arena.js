@@ -48,10 +48,11 @@ function withSelector(genomes, selA, selB) {
 
 if (require.main === module) {
   const data = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'weights.json'), 'utf8'));
-  const top = data.levels[data.levels.length - 1].variants;
+  const nets = data.levels.filter(function (lv) { return lv.variants; });
+  const top = nets[nets.length - 1].variants;
   const seeds = T.seedList(300007, 80);
   const naive = withSelector(top, 0, 0);
-  console.log('Mismos pesos (nivel ' + data.levels[data.levels.length - 1].name + '), 80 partidas de 4 bots: 2 con criterio contra 2 que van a la más cercana\n');
+  console.log('Mismos pesos (nivel ' + nets[nets.length - 1].name + '), 80 partidas de 4 bots: 2 con criterio contra 2 que van a la más cercana\n');
   console.log('criterio (A, B)'.padEnd(18) + 'con criterio: puntos  estrellas  gana'.padEnd(42) + 'ingenuos: puntos  estrellas  gana');
   for (const [selA, selB] of [[0, 0], [0.5, 0], [1, 0], [2, 0], [4, 0], [0, 0.5], [0, 1], [1, 0.5], [2, 1], [4, 2]]) {
     const r = duel(withSelector(top, selA, selB), naive, seeds, 0);

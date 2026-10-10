@@ -696,11 +696,56 @@ uno, así que el superviviente no puede remontar. El problema real es el contrar
 vale casi nada) y hay un hueco en la regla: con dos en pie, quien va ganando puede dejarse matar
 para cerrar la ronda.
 
-Pendiente de hacer:
-- [ ] Estrellas de distinto valor, tamaño y color (más pequeña = más difícil = más puntos).
-- [ ] Más enemigos con otras mecánicas y más daño, que aparezcan según la dificultad.
-- [ ] Antídoto al juego pasivo / valor de aguantar: propuestas enviadas al usuario (tormenta,
-      perder vida sin puntuar, racha, prórroga del último en pie, lluvia que busca al pasivo);
-      espera su elección. Si no contesta: prórroga + racha, y tormenta como regla opcional.
-- Pregunta sobre replicar agar.io con una skill "replica-skill": esa skill no está disponible en
-  esta sesión; contestado. No se ha empezado nada.
+El usuario eligió: prórroga y racha.
+
+## Iteración 12 — Estrellas de tres valores, enemigos por dificultad, racha y prórroga
+
+**Estrellas.** Tres tamaños: grande ámbar (150 puntos, radio 15, sale el 20 %), dorada (300, radio
+10, 55 %) y pequeña azul (600, radio 6, 25 %). La pequeña se coge desde más cerca. El bot lo tiene
+en cuenta con un número más en su criterio (y en su genoma, que pasa a 468): cuántos px de desvío
+compensa que una estrella valga el doble.
+
+**Racha.** Estrellas seguidas con menos de 3 s entre una y otra: desde la tercera valen el doble y
+desde la sexta el triple. Empecé con 4 s y lo bajé: los bots Experto cogen una estrella cada ~1,3 s
+y la tenían siempre al máximo, así que no era un reto sino un multiplicador fijo. Aun con 3 s,
+para un bot bueno casi lo sigue siendo.
+
+Efecto que hay que tener presente: con la racha las estrellas pesan todavía más frente a aguantar.
+Un Experto pasa de ~17000 a ~40000 puntos por partida, casi todo estrellas. Es lo contrario de
+"que aguantar valga más"; la prórroga compensa solo en parte. Si al jugar se nota desequilibrado,
+lo primero que tocaría es subir lo que da cada segundo en pie.
+
+**Prórroga.** Cuando queda uno en pie: si ya va primero, la ronda acaba (como antes). Si va por
+detrás, tiene 10 s para remontar, y acaba cuando lo consigue, cae o se agota el tiempo. Cierra el
+hueco de "voy ganando, me dejo matar": ahora quien lo haga le regala 10 s al rival.
+
+**Enemigos por dificultad.** Cada nivel añade tipos al anterior:
+
+| dificultad | velocidad | ritmo | enemigos |
+|------------|----------:|------:|----------|
+| Suave      |      x0,8 |  x0,7 | solo normales |
+| Normal     |        x1 |    x1 | + los que rebotan y ráfagas de tres |
+| Intensa    |      x1,2 |  x1,4 | + minas (se paran 4 s y desaparecen) y zigzags |
+| Imposible  |      x1,5 |  x2,4 | + pesados (radio 20, lentos, quitan 2 vidas) |
+
+(Suave tenía rebotes y ráfagas hasta ahora; los pierde.) Todos siguen siendo predecibles: mina y
+zigzag son función del tiempo, no del jugador, así que el invitado puede adelantarlos igual que
+los demás y el Modo Dios calcula con ellos sin error (`Sim.hazardPos`, con tests). Descartado por
+eso mismo: un enemigo que persiga.
+
+Red: protocolo 4 (tamaño de cada estrella, racha de cada jugador, prórroga, y los tres datos
+propios de minas y zigzag).
+
+Pruebas: 114 tests de Node (entre ellos: cada dificultad saca solo sus enemigos; el Modo Dios
+sobrevive al primer minuto en Imposible y rodea una mina; la prórroga en sus tres finales).
+Navegador: un jugador, dos pestañas con y sin retraso, sala llena y relevo, en verde.
+
+### Punto de control (para retomar)
+
+En marcha en segundo plano: `train/evolve-arena.js --name arena3` (200 generaciones con las
+reglas nuevas; aprende lo que pesa el valor de una estrella) y `train/export.js --run arena2`
+(vuelve a medir los niveles publicados con las reglas nuevas). Cuando acabe `arena3`:
+`node train/export.js --run arena3 --easy tca`, publicar si gana a lo publicado, y apuntarlo.
+Pendiente y opcional: tormenta como regla (el usuario la propuso; no la eligió), y el punto E del
+plan (experimentos largos).
+

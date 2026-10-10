@@ -15,7 +15,7 @@
   'use strict';
 
   const C = Sim.C;
-  const PROTOCOL = 3; // 3: mejoras, efectos de los jugadores y proyectiles que rebotan
+  const PROTOCOL = 4; // 4: estrellas de varios valores, enemigos nuevos, racha y prórroga
   const STEP_MS = 1000 / C.TICK_HZ;
   const SNAP_EVERY = 3; // ticks entre instantáneas (20 por segundo)
   const COUNTDOWN_TICKS = 3 * C.TICK_HZ;
@@ -29,10 +29,11 @@
   const HOST_TIMEOUT_MS = 25000; // sin noticias del anfitrión: se le da por perdido
   const PING_MS = 500;
   const MAX_EXTRAP_TICKS = 30; // si dejan de llegar instantáneas no se extrapola más de 0,5 s
-  const P_FIELDS = 15;
-  const H_FIELDS = 6;
+  const P_FIELDS = 16;
+  const H_FIELDS = 9;
   const U_FIELDS = 4;
-  const EVENT_TYPES = ['hit', 'dead', 'star', 'over', 'power', 'bomb', 'shield'];
+  const S_FIELDS = 3;
+  const EVENT_TYPES = ['hit', 'dead', 'star', 'over', 'power', 'bomb', 'shield', 'overtime'];
 
   function r10(v) {
     return Math.round(v * 10);
@@ -53,13 +54,15 @@
     for (let i = 0; i < s.players.length; i++) {
       const q = s.players[i];
       p.push(r10(q.x), r10(q.y), q.mx, q.my, q.lives, q.inv, q.alive ? 1 : 0, q.score, q.stars, q.deathTick,
-        q.turbo | 0, q.ghost | 0, q.shield | 0, q.double | 0, q.magnet | 0);
+        q.turbo | 0, q.ghost | 0, q.shield | 0, q.double | 0, q.magnet | 0, q.combo | 0);
     }
     const h = [];
     for (let i = 0; i < s.hazards.length; i++) {
       const z = s.hazards[i];
-      // Último campo: tipo y rebotes que le quedan, juntos.
-      h.push(r10(z.x), r10(z.y), r10(z.vx), r10(z.vy), r10(z.r), (z.k | 0) * 4 + (z.b | 0));
+      // Tipo y rebotes que le quedan, juntos; y los tres datos propios de minas y zigzag, con
+      // precisión de sobra para que el invitado los adelante igual que el anfitrión.
+      h.push(r10(z.x), r10(z.y), r10(z.vx), r10(z.vy), r10(z.r), (z.k | 0) * 4 + (z.b | 0),
+        Math.round((z.e1 || 0) * 1000), Math.round((z.e2 || 0) * 1000), Math.round((z.e3 || 0) * 1000));
     }
     const e = [];
     for (let i = 0; i < events.length; i++) {
@@ -68,13 +71,13 @@
       e.push(EVENT_TYPES.indexOf(ev.type), ev.p + 16 * (ev.k | 0), Math.round(ev.x), Math.round(ev.y));
     }
     const st = [];
-    for (let i = 0; i < s.stars.length; i++) st.push(r10(s.stars[i].x), r10(s.stars[i].y));
+    for (let i = 0; i < s.stars.length; i++) st.push(r10(s.stars[i].x), r10(s.stars[i].y), s.stars[i].t | 0);
     const u = [];
     for (let i = 0; i < s.powerups.length; i++) {
       const w = s.powerups[i];
       u.push(w.type, r10(w.x), r10(w.y), w.ttl);
     }
-    return { t: 's', r: round, k: s.tick, o: s.over ? 1 : 0, w: s.winner, l: s.maxLives, p: p, h: h, s: st, u: u, e: e, a: -1 };
+    return { t: 's', r: round, k: s.tick, o: s.over ? 1 : 0, w: s.winner, l: s.maxLives, x: s.overtime, p: p, h: h, s: st, u: u, e: e, a: -1 };
   }
 
   // Devuelve un objeto con la misma forma que el estado de sim.js (lo justo para dibujar).
@@ -97,14 +100,18 @@
         shield: m.p[i + 12],
         double: m.p[i + 13],
         magnet: m.p[i + 14],
+        combo: m.p[i + 15],
       });
     }
     const hazards = [];
     for (let i = 0; i + H_FIELDS <= m.h.length; i += H_FIELDS) {
-      hazards.push({ x: m.h[i] / 10, y: m.h[i + 1] / 10, vx: m.h[i + 2] / 10, vy: m.h[i + 3] / 10, r: m.h[i + 4] / 10, k: m.h[i + 5] >> 2, b: m.h[i + 5] & 3 });
+      hazards.push({
+        x: m.h[i] / 10, y: m.h[i + 1] / 10, vx: m.h[i + 2] / 10, vy: m.h[i + 3] / 10, r: m.h[i + 4] / 10,
+        k: m.h[i + 5] >> 2, b: m.h[i + 5] & 3, e1: m.h[i + 6] / 1000, e2: m.h[i + 7] / 1000, e3: m.h[i + 8] / 1000,
+      });
     }
     const stars = [];
-    for (let i = 0; i + 2 <= m.s.length; i += 2) stars.push({ x: m.s[i] / 10, y: m.s[i + 1] / 10 });
+    for (let i = 0; i + S_FIELDS <= m.s.length; i += S_FIELDS) stars.push({ x: m.s[i] / 10, y: m.s[i + 1] / 10, t: m.s[i + 2] });
     const powerups = [];
     const u = m.u || [];
     for (let i = 0; i + U_FIELDS <= u.length; i += U_FIELDS) powerups.push({ type: u[i], x: u[i + 1] / 10, y: u[i + 2] / 10, ttl: u[i + 3] });
@@ -113,6 +120,7 @@
       over: m.o === 1,
       winner: m.w,
       maxLives: m.l,
+      overtime: m.x === undefined ? -1 : m.x,
       stars: stars,
       powerups: powerups,
       numPlayers: players.length,
@@ -429,7 +437,7 @@
     let lastTickMs = 0;
     let cdEnd = 0;
     const view = { state: null, meta: [], localIdx: -1, countdown: 0, hazExt: 0, plExt: 0 };
-    const viewState = { tick: 0, over: false, winner: -1, maxLives: C.LIVES, numPlayers: 0, players: [], hazards: [], stars: [], powerups: [] };
+    const viewState = { tick: 0, over: false, winner: -1, maxLives: C.LIVES, overtime: -1, numPlayers: 0, players: [], hazards: [], stars: [], powerups: [] };
 
     const client = {
       phase: 'connecting', // connecting | lobby | countdown | playing | over
@@ -612,6 +620,7 @@
       viewState.stars = snap.stars;
       viewState.powerups = snap.powerups;
       viewState.maxLives = snap.maxLives;
+      viewState.overtime = snap.overtime;
       viewState.players.length = snap.players.length;
       const me = view.localIdx;
       for (let i = 0; i < snap.players.length; i++) {
@@ -628,6 +637,7 @@
         d.shield = p.shield;
         d.double = p.double;
         d.magnet = p.magnet;
+        d.combo = p.combo;
         if (i === me && p.alive && client.phase === 'playing') {
           // Propio: predicción + fracción de tick transcurrida, para que no dé tirones.
           const frac = Math.min(1, Math.max(0, (now - lastTickMs) / STEP_MS));

@@ -60,6 +60,18 @@ test('la instantánea lleva mejoras, efectos de los jugadores y tipo de proyecti
   assert.deepEqual([v.players[0].turbo, v.players[0].double, v.players[1].ghost, v.players[1].shield, v.players[1].magnet], [120, 7, 33, 400, 9]);
   assert.deepEqual(v.powerups, [{ type: 5, x: 123.4, y: 456.7, ttl: 321 }]);
   assert.deepEqual(v.hazards.map((z) => [z.k, z.b]), [[1, 2], [2, 0]]);
+  // Estrellas con su tamaño, racha de cada jugador, prórroga y los datos de minas y zigzag.
+  s.stars[0].t = 2;
+  s.stars[1].t = 0;
+  s.players[1].combo = 4;
+  s.overtime = 250;
+  s.hazards.length = 0;
+  s.hazards.push({ x: 10, y: 20, vx: 0, vy: 0, r: 11, k: 4, b: 0, e1: 0, e2: 2.345, e3: 0 }, { x: 30, y: 40, vx: 150, vy: 80, r: 9, k: 5, b: 0, e1: 160.5, e2: 70.25, e3: 3.141 });
+  const v2 = Netcode.decodeSnapshot(JSON.parse(JSON.stringify(Netcode.encodeSnapshot(s, 1, [{ type: 'star', p: 0, k: 2, x: 5, y: 6 }, { type: 'overtime', p: 1, x: 0, y: 0 }]))));
+  assert.deepEqual(v2.stars.map((st) => st.t).slice(0, 2), [2, 0]);
+  assert.equal(v2.players[1].combo, 4);
+  assert.equal(v2.overtime, 250);
+  assert.deepEqual(v2.hazards.map((z) => [z.k, z.e1, z.e2, z.e3]), [[4, 0, 2.345, 0], [5, 160.5, 70.25, 3.141]]);
 });
 
 test('con turbo, la predicción del invitado sigue coincidiendo con el anfitrión', () => {

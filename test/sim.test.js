@@ -136,18 +136,73 @@ test('con varios jugadores la ronda acaba cuando queda uno; sin estrellas gana q
   assert.deepEqual(Sim.ranking(s), [1, 2, 0]);
 });
 
-test('gana quien más puntos tiene, aunque haya caído antes', () => {
-  const s = Sim.createState({ seed: 3, numPlayers: 3 });
+test('gana quien más puntos tiene, aunque haya caído antes (tras la prórroga)', () => {
+  const s = Sim.createState({ seed: 3, numPlayers: 3, powerups: false });
+  s.spawnTimer = 1e9; // sin más proyectiles que los que se ponen a mano
+  parkStars(s);
   s.players[0].lives = 1;
-  s.players[0].score = 900; // cogió estrellas
+  s.players[0].score = 5000; // cogió muchas estrellas
   s.players[2].lives = 1;
   s.hazards.push(hazardAt(s.players[0].x, s.players[0].y));
   Sim.step(s, []);
   s.hazards.push(hazardAt(s.players[2].x, s.players[2].y));
   Sim.step(s, []);
+  // Queda uno en pie, pero va por detrás: no acaba todavía, tiene prórroga.
+  assert.equal(s.over, false);
+  assert.equal(s.overtime, C.OVERTIME_TICKS);
+  assert.ok(s.events.some((e) => e.type === 'overtime'));
+  let ticks = 0;
+  while (!s.over && ticks < 2000) {
+    Sim.step(s, []);
+    ticks++;
+  }
+  assert.equal(ticks, C.OVERTIME_TICKS, 'la prórroga dura lo que dice');
+  assert.equal(s.winner, 0, 'no le ha dado tiempo a remontar: gana el que tenía más puntos');
+  assert.deepEqual(Sim.ranking(s), [0, 1, 2]);
+});
+
+test('prórroga: si el último en pie remonta, gana en ese momento', () => {
+  const s = Sim.createState({ seed: 3, numPlayers: 2, powerups: false });
+  s.spawnTimer = 1e9;
+  parkStars(s);
+  s.players[0].lives = 1;
+  s.players[0].score = 400;
+  s.hazards.push(hazardAt(s.players[0].x, s.players[0].y));
+  Sim.step(s, []);
+  assert.equal(s.over, false, 'prórroga');
+  // El superviviente coge una estrella de 600 y se pone por delante.
+  s.stars[0].x = s.players[1].x;
+  s.stars[0].y = s.players[1].y;
+  s.stars[0].t = 2;
+  Sim.step(s, []);
+  assert.equal(s.over, true);
+  assert.equal(s.winner, 1);
+});
+
+test('prórroga: si el último en pie cae durante ella, se acaba', () => {
+  const s = Sim.createState({ seed: 3, numPlayers: 2, powerups: false });
+  s.spawnTimer = 1e9;
+  parkStars(s);
+  s.players[0].lives = 1;
+  s.players[0].score = 5000;
+  s.players[1].lives = 1;
+  s.hazards.push(hazardAt(s.players[0].x, s.players[0].y));
+  Sim.step(s, []);
+  assert.equal(s.over, false);
+  s.hazards.push(hazardAt(s.players[1].x, s.players[1].y));
+  Sim.step(s, []);
   assert.equal(s.over, true);
   assert.equal(s.winner, 0);
-  assert.deepEqual(Sim.ranking(s), [0, 1, 2]);
+});
+
+test('sin prórroga cuando el último en pie ya va primero', () => {
+  const s = Sim.createState({ seed: 3, numPlayers: 2, powerups: false });
+  s.players[0].lives = 1;
+  s.hazards.push(hazardAt(s.players[0].x, s.players[0].y));
+  Sim.step(s, []);
+  assert.equal(s.over, true);
+  assert.equal(s.overtime, -1);
+  assert.equal(s.winner, 1);
 });
 
 test('a igualdad de puntos gana quien sigue en pie', () => {
@@ -165,6 +220,7 @@ function parkStars(s) {
   s.stars.forEach((st, k) => {
     st.x = corners[k][0];
     st.y = corners[k][1];
+    st.t = 1; // todas normales, para que los tests de puntos no dependan del sorteo
   });
 }
 
@@ -238,6 +294,8 @@ test('coger una estrella da puntos y la recoloca lejos de quien la cogió y de l
     const k = n % C.STAR_COUNT;
     s.stars[k].x = p.x;
     s.stars[k].y = p.y;
+    s.stars[k].t = 1;
+    p.combo = 0; // sin racha: aquí se mide lo que vale una estrella suelta
     const before = p.score;
     Sim.step(s, [null]);
     assert.equal(p.score, before + 1 + C.STAR_POINTS);
@@ -262,7 +320,175 @@ test('un jugador puede coger dos estrellas en el mismo tick', () => {
   Sim.step(s, [null]);
   assert.equal(p.stars, 2);
   assert.equal(p.score, 1 + 2 * C.STAR_POINTS);
+  assert.equal(p.combo, 2, 'y ya lleva dos de racha');
 });
+
+test('estrellas de tres tamaños: la pequeña vale más y hay que acercarse más', () => {
+  assert.deepEqual(Sim.STAR_TIERS.map((t) => t.points), [150, 300, 600]);
+  assert.ok(Sim.STAR_TIERS[0].r > Sim.STAR_TIERS[1].r && Sim.STAR_TIERS[1].r > Sim.STAR_TIERS[2].r);
+  for (let t = 0; t < 3; t++) {
+    const tier = Sim.STAR_TIERS[t];
+    const s = Sim.createState({ seed: 11, powerups: false });
+    s.spawnTimer = 1e9;
+    parkStars(s);
+    const p = s.players[0];
+    // Justo fuera de su alcance no se coge; justo dentro, sí, y da sus puntos.
+    s.stars[0].t = t;
+    s.stars[0].x = p.x + C.PLAYER_R + tier.r + 1;
+    s.stars[0].y = p.y;
+    Sim.step(s, [null]);
+    assert.equal(p.stars, 0, 'tamaño ' + t + ': fuera de alcance');
+    s.stars[0].x = p.x + C.PLAYER_R + tier.r - 1;
+    const before = p.score;
+    Sim.step(s, [null]);
+    assert.equal(p.score, before + 1 + tier.points, 'tamaño ' + t);
+    assert.deepEqual(s.events.filter((e) => e.type === 'star').map((e) => e.k), [t]);
+  }
+  // En una partida salen de los tres tamaños, y la normal es la más frecuente.
+  const count = [0, 0, 0];
+  for (let seed = 1; seed <= 300; seed++) for (const st of Sim.createState({ seed: seed }).stars) count[st.t]++;
+  assert.ok(count[1] > count[2] && count[2] > count[0] && count[0] > 100, 'reparto: ' + count);
+});
+
+test('racha: la tercera estrella seguida vale el doble, la sexta el triple, y se pierde si tardas', () => {
+  const s = Sim.createState({ seed: 11, powerups: false });
+  s.spawnTimer = 1e9;
+  parkStars(s);
+  const p = s.players[0];
+  const coger = () => {
+    s.stars[0].x = p.x;
+    s.stars[0].y = p.y;
+    s.stars[0].t = 1;
+    const before = p.score;
+    Sim.step(s, [null]);
+    parkStars(s);
+    return p.score - before - 1;
+  };
+  assert.deepEqual([coger(), coger(), coger(), coger(), coger(), coger(), coger()], [300, 300, 600, 600, 600, 900, 900]);
+  assert.equal(Sim.comboMult(p), 3);
+  // Pasa el plazo sin coger ninguna: la racha se pierde.
+  for (let t = 0; t < C.COMBO_WINDOW; t++) Sim.step(s, [null]);
+  assert.equal(p.combo, 0);
+  assert.equal(coger(), 300);
+  // Racha y mejora "doble" se multiplican entre sí.
+  p.combo = 5;
+  p.comboT = 100;
+  p.double = 100;
+  assert.equal(coger(), 300 * 3 * 2 + 1, 'x3 de racha, x2 de doble (y el punto extra del tick doble)');
+});
+
+// ---------- Enemigos por dificultad ----------
+
+function kindsSeen(hazard, seconds) {
+  const s = Sim.createState({ seed: 5, hazard: hazard, powerups: false });
+  s.players[0].lives = 1e9;
+  const seen = new Set();
+  const kinds = [0, 0, 0, 0, 0, 0];
+  for (let t = 0; t < 60 * seconds; t++) {
+    Sim.step(s, [wiggle(s.tick, 0)]);
+    for (const z of s.hazards) {
+      if (seen.has(z)) continue;
+      seen.add(z);
+      kinds[z.k]++;
+    }
+  }
+  return kinds;
+}
+
+test('cada dificultad añade enemigos a la anterior', () => {
+  const suave = kindsSeen(0, 80);
+  const normal = kindsSeen(1, 80);
+  const intensa = kindsSeen(2, 80);
+  const imposible = kindsSeen(3, 60);
+  assert.deepEqual(suave.slice(1), [0, 0, 0, 0, 0], 'suave: solo normales');
+  assert.ok(normal[1] > 0 && normal[2] > 0, 'normal: rebotan y ráfagas');
+  assert.deepEqual(normal.slice(3), [0, 0, 0], 'normal: ni pesados, ni minas, ni zigzag');
+  assert.ok(intensa[4] > 0 && intensa[5] > 0, 'intensa: minas y zigzag: ' + intensa);
+  assert.equal(intensa[3], 0, 'intensa: sin pesados');
+  assert.ok(imposible[3] > 0 && imposible[4] > 0 && imposible[5] > 0 && imposible[1] > 0, 'imposible: de todo: ' + imposible);
+  // El normal sigue siendo el tipo más frecuente en todas (las ráfagas cuentan por tres).
+  for (const k of [suave, normal, intensa, imposible]) assert.ok(k[0] > Math.max(k[1], k[2], k[3], k[4], k[5]), 'el normal es el más frecuente: ' + k);
+});
+
+test('pesado: quita dos vidas (y el escudo lo para entero)', () => {
+  const s = Sim.createState({ seed: 9, powerups: false });
+  s.spawnTimer = 1e9;
+  const p = s.players[0];
+  s.hazards.push({ x: p.x, y: p.y, vx: 0, vy: 0, r: C.HEAVY_R, k: 3, b: 0 });
+  Sim.step(s, [null]);
+  assert.equal(p.lives, C.LIVES - 2);
+  p.inv = 0;
+  p.shield = 100;
+  s.hazards.push({ x: p.x, y: p.y, vx: 0, vy: 0, r: C.HEAVY_R, k: 3, b: 0 });
+  Sim.step(s, [null]);
+  assert.equal(p.lives, C.LIVES - 2, 'el escudo absorbe el golpe entero');
+  p.inv = 0;
+  s.hazards.push({ x: p.x, y: p.y, vx: 0, vy: 0, r: C.HEAVY_R, k: 3, b: 0 });
+  Sim.step(s, [null]);
+  assert.equal(p.alive, false, 'con una vida, un pesado elimina');
+});
+
+test('mina: llega a su punto, se queda parada el tiempo justo y desaparece', () => {
+  const s = Sim.createState({ seed: 9, powerups: false });
+  s.spawnTimer = 1e9;
+  s.players[0].x = 60;
+  s.players[0].y = 60;
+  s.hazards.push({ x: 0, y: 300, vx: 200, vy: 0, r: 11, k: 4, b: 0, e1: 1.5, e2: C.MINE_HOLD, e3: 0 }); // 300 px de viaje
+  const z = s.hazards[0];
+  let viaje = 0;
+  while (z.vx !== 0 && viaje < 200) {
+    Sim.step(s, [null]);
+    viaje++;
+  }
+  assert.ok(viaje >= 90 && viaje <= 91, 'tarda 1,5 s en llegar: ' + viaje + ' ticks');
+  assert.ok(Math.abs(z.x - 300) < 1e-6, 'se para a los 300 px: ' + z.x);
+  let parada = 0;
+  while (s.hazards.length && parada < 1000) {
+    Sim.step(s, [null]);
+    parada++;
+    if (s.hazards.length) assert.ok(Math.abs(z.x - 300) < 1e-6, 'mientras tanto no se mueve');
+  }
+  assert.ok(Math.abs(parada - C.MINE_HOLD * 60) <= 2, 'aguanta parada 4 s y desaparece: ' + parada + ' ticks');
+});
+
+test('mina parada: quita una vida a quien la pisa', () => {
+  const s = Sim.createState({ seed: 9, powerups: false });
+  s.spawnTimer = 1e9;
+  const p = s.players[0];
+  s.hazards.push({ x: p.x + 100, y: p.y, vx: 0, vy: 0, r: 11, k: 4, b: 0, e1: 0, e2: 3, e3: 0 });
+  for (let t = 0; t < 30; t++) Sim.step(s, [{ mx: 1, my: 0 }]);
+  assert.equal(p.lives, C.LIVES - 1);
+});
+
+test('zigzag: avanza en su dirección serpenteando a los lados', () => {
+  const z = { x: 0, y: 300, vx: 200, vy: 0, r: 9, k: 5, b: 0, e1: 200, e2: 0, e3: 0 };
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let t = 0; t < 180; t++) {
+    Sim.moveHazard(z, C.DT);
+    minY = Math.min(minY, z.y);
+    maxY = Math.max(maxY, z.y);
+  }
+  assert.ok(Math.abs(z.x - 600) < 1e-6, 'avanza a su velocidad de base: ' + z.x);
+  assert.ok(maxY - 300 > C.ZIGZAG_AMP * 0.9 && 300 - minY > C.ZIGZAG_AMP * 0.9, 'se desvía a ambos lados: ' + minY.toFixed(0) + '..' + maxY.toFixed(0));
+  assert.ok(maxY - 300 < C.ZIGZAG_AMP * 1.1);
+});
+
+test('hazardPos predice también minas y zigzag', () => {
+  for (const z0 of [
+    { x: 0, y: 300, vx: 240, vy: 30, r: 11, k: 4, b: 0, e1: 0.4, e2: 0.3, e3: 0 },
+    { x: 100, y: 100, vx: 180, vy: 90, r: 9, k: 5, b: 0, e1: 180, e2: 90, e3: 1.3 },
+  ]) {
+    const real = Sim.copyHazard(z0, {});
+    const out = { x: 0, y: 0 };
+    for (let t = 1; t <= 36; t++) {
+      if (!real.dead) Sim.moveHazard(real, C.DT);
+      Sim.hazardPos(z0, t * C.DT, out);
+      assert.ok(Math.abs(out.x - real.x) < 1e-6 && Math.abs(out.y - real.y) < 1e-6, 'tipo ' + z0.k + ', tick ' + t);
+    }
+  }
+});
+
 
 test('con tres estrellas ya no se las lleva todas quien tenga suerte con la primera', () => {
   // Dos jugadores que van siempre a por su estrella más cercana: el reparto debe ser
@@ -606,6 +832,7 @@ test('doble: el tiempo y las estrellas puntúan el doble', () => {
   assert.equal(p.score, antes + 2);
   s.stars[0].x = p.x;
   s.stars[0].y = p.y;
+  s.stars[0].t = 1;
   const antes2 = p.score;
   Sim.step(s, [null]);
   assert.equal(p.score, antes2 + 2 + 2 * C.STAR_POINTS);

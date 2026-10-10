@@ -15,7 +15,8 @@ const SECT = 3; // valores por sector
 
 test('la red tiene el tamaño documentado', () => {
   assert.equal(NN.N_IN, 32);
-  assert.equal(NN.N_W, (NN.N_IN + 1) * NN.N_HID + (NN.N_HID + 1) * NN.N_OUT);
+  assert.equal(NN.N_NET, (NN.N_IN + 1) * NN.N_HID + (NN.N_HID + 1) * NN.N_OUT);
+  assert.equal(NN.N_W, NN.N_NET + NN.N_SEL);
 });
 
 test('sin proyectiles los sectores están a cero', () => {
@@ -121,6 +122,61 @@ test('de varias estrellas el bot mira la más cercana', () => {
   const o = 8 * SECT + 4;
   assert.ok(Math.abs(out[o]) < 1e-9 && Math.abs(out[o + 1] + 1) < 1e-9, 'apunta a la de arriba');
   assert.ok(Math.abs(out[o + 2] - 0.9) < 1e-9);
+});
+
+// Arena de prueba: yo en el centro, una estrella cerca a la derecha y otra más lejos a la izquierda.
+function rivalScene() {
+  const s = Sim.createState({ seed: 1, numPlayers: 2 });
+  s.hazards.length = 0;
+  const me = s.players[0];
+  const rival = s.players[1];
+  me.x = 400;
+  me.y = 300;
+  s.stars = [{ x: 600, y: 300 }, { x: 150, y: 300 }, { x: 400, y: 560 }]; // a 200, 250 y 260 px
+  return { s, me, rival };
+}
+
+test('elegir estrella: sin rivales o sin criterio, la más cercana', () => {
+  const { s, rival } = rivalScene();
+  rival.x = 580; // pegado a la estrella que yo tengo más cerca, y yendo hacia ella
+  rival.y = 300;
+  rival.mx = 1;
+  assert.equal(NN.targetStar(s, 0, 0, 0), 0, 'con criterio 0 se ignora a los rivales');
+  rival.alive = false;
+  assert.equal(NN.targetStar(s, 0, 3, 1), 0, 'un rival caído no cuenta');
+});
+
+test('elegir estrella: si un rival llega antes a la más cercana, se va a por otra', () => {
+  const { s, rival } = rivalScene();
+  rival.x = 520; // a 80 px de la estrella; yo, a 200: me lleva 120 de ventaja
+  rival.y = 300;
+  rival.mx = 1; // y va hacia ella
+  assert.equal(NN.targetStar(s, 0, 2, 0), 1, 'la da por perdida y va a la siguiente');
+  rival.mx = -1; // se aleja de ella: no la está disputando
+  assert.equal(NN.targetStar(s, 0, 2, 0), 0, 'si el rival no va hacia ella, sigue siendo mía');
+  assert.equal(NN.targetStar(s, 0, 0, 1), 1, 'salvo que el criterio penalice la mera cercanía');
+  // Si quien está más cerca soy yo, no cambia nada aunque el rival venga.
+  rival.x = 150;
+  rival.mx = 1;
+  assert.equal(NN.targetStar(s, 0, 5, 5), 0);
+});
+
+test('elegir estrella: el bot percibe la dirección de su objetivo, no de la más cercana', () => {
+  const { s, rival } = rivalScene();
+  rival.x = 520;
+  rival.y = 300;
+  rival.mx = 1;
+  const o = 8 * SECT + 4;
+  const ingenuo = NN.sense(s, 0, new Float64Array(NN.N_IN));
+  assert.ok(ingenuo[o] > 0.99, 'sin criterio mira a la derecha');
+  const listo = NN.sense(s, 0, new Float64Array(NN.N_IN), 2, 0);
+  assert.ok(listo[o] < -0.99, 'con criterio mira a la izquierda');
+});
+
+test('un genoma antiguo (sin criterio de estrella) sigue sirviendo', () => {
+  const viejo = new Float64Array(NN.N_NET);
+  assert.doesNotThrow(() => NN.createBrain(viejo));
+  assert.throws(() => NN.createBrain(new Float64Array(NN.N_NET - 1)));
 });
 
 test('todas las percepciones están acotadas durante una partida real', () => {

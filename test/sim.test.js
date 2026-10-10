@@ -183,6 +183,53 @@ test('hay varias estrellas a la vez, dentro de la arena y separadas entre sí', 
   }
 });
 
+test('las estrellas no aparecen encima ni cerca de ningún jugador', () => {
+  // Partidas reales con jugadores que persiguen estrellas: se mide cada estrella al aparecer.
+  const chase = (s, i) => {
+    const p = s.players[i];
+    let best = s.stars[0];
+    for (const st of s.stars) if (Math.hypot(st.x - p.x, st.y - p.y) < Math.hypot(best.x - p.x, best.y - p.y)) best = st;
+    return { mx: Math.abs(best.x - p.x) > 3 ? Math.sign(best.x - p.x) : 0, my: Math.abs(best.y - p.y) > 3 ? Math.sign(best.y - p.y) : 0 };
+  };
+  for (const n of [1, 2, 4, 6]) {
+    let total = 0;
+    let cumplen = 0;
+    let peor = Infinity;
+    const medir = (s, st) => {
+      const need = Sim.starPlayerDist(s);
+      let d = Infinity;
+      for (const p of s.players) if (p.alive) d = Math.min(d, Math.hypot(st.x - p.x, st.y - p.y));
+      total++;
+      if (d >= need - 1e-9) cumplen++;
+      peor = Math.min(peor, d / need);
+    };
+    for (let seed = 1; seed <= 12; seed++) {
+      const s = Sim.createState({ seed: seed, numPlayers: n, lives: 5, hazard: 0 });
+      s.stars.forEach((st) => medir(s, st));
+      for (let t = 0; t < 60 * 15 && !s.over; t++) {
+        const antes = s.stars.map((st) => st.x + ',' + st.y);
+        Sim.step(s, s.players.map((_, i) => chase(s, i)));
+        s.stars.forEach((st, k) => {
+          if (st.x + ',' + st.y !== antes[k]) medir(s, st);
+        });
+      }
+    }
+    assert.ok(total > 60, n + ' jugadores: ' + total + ' estrellas medidas');
+    assert.ok(cumplen / total > 0.97, n + ' jugadores: ' + cumplen + ' de ' + total + ' aparecen a la distancia pedida');
+    assert.ok(peor > 0.6, n + ' jugadores: la peor aparece al ' + (peor * 100).toFixed(0) + ' % de la distancia pedida');
+  }
+});
+
+test('con más jugadores en pie, las estrellas aparecen más lejos de ellos', () => {
+  const dist = (n) => Sim.starPlayerDist(Sim.createState({ seed: 1, numPlayers: n }));
+  assert.equal(dist(1), C.STAR_PLAYER_DIST);
+  assert.ok(dist(2) > dist(1) && dist(4) > dist(2) && dist(6) > dist(4));
+  assert.equal(dist(6), 160);
+  const s = Sim.createState({ seed: 1, numPlayers: 6 });
+  s.players[0].alive = false;
+  assert.equal(Sim.starPlayerDist(s), 150, 'solo cuentan los que siguen en pie');
+});
+
 test('coger una estrella da puntos y la recoloca lejos de quien la cogió y de las otras', () => {
   const s = Sim.createState({ seed: 11 });
   const p = s.players[0];

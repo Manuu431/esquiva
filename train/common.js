@@ -190,3 +190,30 @@ module.exports = {
   planner: planner,
   seedList: seedList,
 };
+
+// ---------- Varios bots en la misma arena ----------
+
+// Juega una ronda con varios jugadores. makers[i]() crea el controlador del puesto i.
+// Devuelve, por puesto, { score, ticks, stars } y quién ganó.
+function playArena(makers, seed, maxTicks, rules) {
+  const r = rules || {};
+  const n = makers.length;
+  const s = Sim.createState({ seed: seed, numPlayers: n, lives: r.lives, hazard: r.hazard });
+  const ctl = makers.map(function (m) {
+    return m();
+  });
+  const inputs = [];
+  while (!s.over && s.tick < maxTicks) {
+    for (let i = 0; i < n; i++) inputs[i] = s.players[i].alive ? ctl[i](s, i) : null;
+    Sim.step(s, inputs);
+  }
+  return {
+    winner: s.over ? s.winner : Sim.ranking(s)[0],
+    ticks: s.tick,
+    players: s.players.map(function (p) {
+      return { score: p.score, ticks: p.alive ? s.tick : p.deathTick, stars: p.stars };
+    }),
+  };
+}
+
+module.exports.playArena = playArena;

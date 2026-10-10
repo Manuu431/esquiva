@@ -76,6 +76,8 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
 
     // Partida contra 3 bots (si hay pesos entrenados): las redes juegan en el navegador.
     const niveles = await page.eval('Esquiva.levels().map(l => l.name)');
+    const hayPesosEntrenados = require('node:fs').existsSync(path.resolve(__dirname, '..', '..', 'weights.json'));
+    assert.ok(!hayPesosEntrenados || niveles.length > 0, 'hay weights.json pero el juego no ha cargado ningún nivel de bot');
     if (niveles.length) {
       await page.eval('document.getElementById("bots").value = "3"; document.getElementById("level").value = "' + (niveles.length - 1) + '"');
       await page.eval('document.getElementById("lives").value = "3"; document.getElementById("hazard").value = "1"');
@@ -100,6 +102,33 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
       await page.key('down', 'Escape');
       await page.key('up', 'Escape');
     }
+
+    // Registro de partidas: las dos jugadas están guardadas con sus ajustes.
+    const games = await page.eval('Esquiva.games()');
+    assert.ok(games.length >= 1, 'hay partidas en el registro');
+    const sola = games[0];
+    assert.deepEqual({ o: sola.o, n: sola.n, b: sola.b, l: sola.l, h: sola.h }, { o: 0, n: 1, b: 0, l: 5, h: 0 }, 'la partida en solitario con 5 vidas y proyectiles suaves');
+    assert.ok(sola.s > 0 && sola.t > 0 && sola.d > 0);
+    await page.click('#btn-stats');
+    assert.equal(await page.eval('document.getElementById("stats").classList.contains("hidden")'), false);
+    const modos = await page.eval('Array.from(document.querySelectorAll("#stats-modes tbody tr")).map(tr => tr.cells[0].textContent)');
+    assert.ok(modos.includes('En solitario · 5 vidas · Suave'), 'récords por modo: ' + modos.join(' | '));
+    const todas = await page.eval('document.querySelectorAll("#stats-games tbody tr").length');
+    assert.equal(todas, games.length);
+    // Filtro: solo las partidas sin bots.
+    await page.eval('(() => { const s = document.getElementById("f-bots"); s.value = "0"; s.dispatchEvent(new Event("change")); })()');
+    const sinBots = await page.eval('document.querySelectorAll("#stats-games tbody tr").length');
+    assert.equal(sinBots, games.filter((g) => g.b === 0).length);
+    assert.match(await page.eval('document.getElementById("stats-summary").textContent'), /media \d+ puntos · récord \d+/);
+    // Pulsar un modo de la tabla de récords pone los filtros en ese modo.
+    await page.eval('document.querySelector("#stats-modes tbody tr").click()');
+    const filtros = await page.eval('["f-where", "f-bots", "f-lives", "f-hazard"].map(id => document.getElementById(id).value).join(",")');
+    assert.match(filtros, /^0,\d,\d,\d$/);
+    await page.screenshot(path.join(SHOTS, 'solo-6-mis-partidas.png'));
+    await page.key('down', 'Escape');
+    await page.key('up', 'Escape');
+    assert.equal(await page.eval('document.getElementById("menu").classList.contains("hidden")'), false, 'Esc vuelve al menú');
+    assert.match(await page.eval('document.getElementById("record").textContent'), /Con estos ajustes|Aún no has jugado/);
 
     // Mientras no haya bots entrenados, el 404 de weights.json es esperado.
     const hayPesos = require('node:fs').existsSync(path.resolve(__dirname, '..', '..', 'weights.json'));

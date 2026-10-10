@@ -44,6 +44,8 @@
   let countdownShown = 0;
   let resultsRound = -1; // ronda cuyos resultados ya se han mostrado
   let busy = false; // conectando
+  let statsOpen = false; // viendo "Mis partidas"
+  const stats = Stats.create(store);
   let demo = null; // partida de exhibición entre bots que se ve detrás del menú
   const humanInput = { mx: 0, my: 0 };
   const localView = { state: null, meta: [], localIdx: -1, countdown: 0, hazExt: 0, plExt: 0 };
@@ -57,7 +59,9 @@
         return r.json();
       })
       .then(function (data) {
-        if (!data.arch || data.arch.weights !== NN.N_W) throw new Error('weights.json no corresponde a esta red');
+        // Valen los genomas completos y los antiguos, sin criterio de elección de estrella.
+        const size = data.arch && data.arch.weights;
+        if (size !== NN.N_W && size !== NN.N_NET) throw new Error('weights.json no corresponde a esta red');
         levels = data.levels || [];
       })
       .catch(function () {
@@ -279,6 +283,7 @@
     roomCode = '';
     resultsRound = -1;
     countdownShown = 0;
+    statsOpen = false;
     demo = null;
     Render.clearEffects();
     setHash('');
@@ -404,25 +409,38 @@
       list.appendChild(li);
     });
 
-    let note;
+    // Al registro, si el jugador ha participado en la ronda (no si solo miraba).
+    let note = '';
+    if (localIdx >= 0 && s.players[localIdx]) {
+      const me = s.players[localIdx];
+      const bots = meta.filter(function (m) {
+        return m.kind === 'bot';
+      });
+      const entry = {
+        d: Date.now(),
+        o: mode === 'local' ? 0 : 1,
+        n: meta.length,
+        b: bots.length,
+        lv: bots.length ? levelName(bots[0].level) : '',
+        l: host ? s.maxLives : client.room.lives,
+        h: host ? s.hazard : client.room.hazard,
+        s: me.score,
+        t: (me.alive ? s.tick : me.deathTick) / C.TICK_HZ,
+        st: me.stars,
+        r: Sim.ranking(s).indexOf(localIdx) + 1,
+        w: !solo && s.winner === localIdx ? 1 : 0,
+      };
+      const before = Stats.summarize(sameMode(stats.all(), entry));
+      stats.add(entry);
+      if (!before.n) note = 'Primera partida en este modo (' + Stats.modeLabel(entry) + ').';
+      else if (entry.s > before.best) note = '¡Nuevo récord en este modo! El anterior era ' + before.best + '.';
+      else note = 'Tu récord en este modo: ' + before.best + ' · tu media: ' + Math.round(before.avg) + '.';
+      if (solo && defaultRules(entry.l, entry.h) && botsSoloText()) note += ' Media de los bots jugando solos: ' + botsSoloText() + '.';
+    }
     if (solo) {
-      const mine = s.players[0].score;
-      const standard = defaultRules(s.maxLives, s.hazard);
-      const key = standard ? 'record' : 'record.' + s.maxLives + '.' + s.hazard;
-      const record = parseInt(store.get(key, '0'), 10) || 0;
-      if (standard) recordSolo(s.players[0], s.tick);
-      if (mine > record) {
-        store.set(key, mine);
-        note = record ? '¡Nuevo récord! El anterior era ' + record + '.' : '¡Primer récord!';
-      } else {
-        note = 'Tu récord: ' + record + '.';
-      }
-      if (!standard) note += ' (Con ' + rulesText(s.maxLives, s.hazard) + '.)';
-      else if (botsSoloText()) note += ' Media de los bots jugando solos: ' + botsSoloText() + '.';
       $('over-title').textContent = 'Aguantaste ' + fmtTime(s.tick);
     } else {
       $('over-title').textContent = s.winner === localIdx ? '¡Has ganado!' : 'Gana ' + meta[s.winner].name;
-      note = 'Gana quien más puntos suma: tiempo en pie + ' + C.STAR_POINTS + ' por estrella.';
     }
     if (mode === 'client') note += ' Esperando al anfitrión…';
     $('over-note').textContent = note;
@@ -431,22 +449,7 @@
     show('gameover');
   }
 
-  // Partidas en solitario del humano, para compararlas con lo que hacen los bots solos.
-  function soloHistory() {
-    try {
-      const h = JSON.parse(store.get('history', '[]'));
-      return Array.isArray(h) ? h : [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function recordSolo(p, ticks) {
-    const h = soloHistory();
-    h.push({ score: p.score, secs: Math.round((ticks / C.TICK_HZ) * 10) / 10, stars: p.stars });
-    store.set('history', JSON.stringify(h.slice(-50)));
-  }
-
+  // Lo que hacen de media los bots jugando solos con las reglas de referencia.
   function botsSoloText() {
     return levels
       .filter(function (lv) {
@@ -471,25 +474,196 @@
   }
 
   function show(id) {
-    ['menu', 'lobby', 'gameover'].forEach(function (k) {
+    ['menu', 'lobby', 'gameover', 'stats'].forEach(function (k) {
       $(k).classList.toggle('hidden', k !== id);
     });
     if (id) $('touch-hint').classList.add('hidden');
     $('btn-exit').classList.toggle('hidden', id !== null); // solo durante la partida
   }
 
+  // Ajustes elegidos ahora mismo en el menú, con la forma de una partida del registro.
+  function menuMode() {
+    const bots = levels.length ? intOf('bots') : 0;
+    return { o: 0, n: bots + 1, b: bots, lv: bots ? levelName(intOf('level')) : '', l: intOf('lives') || C.LIVES, h: intOf('hazard') };
+  }
+
+  function sameMode(list, m) {
+    const key = Stats.modeKey(m);
+    return list.filter(function (g) {
+      return Stats.modeKey(g) === key;
+    });
+  }
+
+  // En el menú: cómo te ha ido con los ajustes que tienes elegidos.
   function updateRecord() {
-    const record = parseInt(store.get('record', '0'), 10) || 0;
-    const h = soloHistory();
-    let text = '';
-    if (h.length) {
-      const recent = h.slice(-10);
-      const avg = recent.reduce(function (a, r) { return a + r.score; }, 0) / recent.length;
-      const secs = recent.reduce(function (a, r) { return a + r.secs; }, 0) / recent.length;
-      text = 'Tú en solitario (3 vidas, proyectiles normales): récord ' + record + ', media de las últimas ' + recent.length + ': ' + Math.round(avg) + ' puntos (' + secs.toFixed(1) + ' s).';
-      if (botsSoloText()) text += ' Bots: ' + botsSoloText() + '.';
-    }
+    const m = menuMode();
+    const sum = Stats.summarize(sameMode(stats.all(), m));
+    let text = sum.n
+      ? 'Con estos ajustes: récord ' + sum.best + ' · media ' + Math.round(sum.avg) + ' (' + sum.n + (sum.n === 1 ? ' partida' : ' partidas') + ').'
+      : 'Aún no has jugado con estos ajustes.';
+    if (m.b === 0 && defaultRules(m.l, m.h) && botsSoloText()) text += ' Bots solos: ' + botsSoloText() + '.';
     $('record').textContent = text;
+  }
+
+  // ---------- Mis partidas ----------
+
+  function statsFilter() {
+    return { o: $('f-where').value, b: $('f-bots').value, lv: $('f-level').value, l: $('f-lives').value, h: $('f-hazard').value };
+  }
+
+  function fmtDate(ms) {
+    if (!ms) return '—';
+    const d = new Date(ms);
+    const two = function (v) {
+      return String(v).padStart(2, '0');
+    };
+    return two(d.getDate()) + '/' + two(d.getMonth() + 1) + ' ' + two(d.getHours()) + ':' + two(d.getMinutes());
+  }
+
+  function table(headers, rows, emptyText) {
+    if (!rows.length) {
+      const div = document.createElement('div');
+      div.className = 'empty';
+      div.textContent = emptyText;
+      return div;
+    }
+    const t = document.createElement('table');
+    const head = t.createTHead().insertRow();
+    headers.forEach(function (h, i) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      if (rows[0].cells[i].cls === 'mode') th.className = 'mode';
+      head.appendChild(th);
+    });
+    const body = t.createTBody();
+    rows.forEach(function (r) {
+      const tr = body.insertRow();
+      if (r.onPick) {
+        tr.className = 'pick';
+        tr.title = 'Ver solo las partidas de este modo';
+        tr.addEventListener('click', r.onPick);
+      }
+      r.cells.forEach(function (c) {
+        const td = tr.insertCell();
+        td.textContent = c.text;
+        if (c.cls) td.className = c.cls;
+      });
+    });
+    return t;
+  }
+
+  function renderStats() {
+    const all = stats.all();
+
+    // Récords: una fila por modo jugado. Al pulsar una, los filtros se ponen en ese modo.
+    const modes = Stats.modes(all);
+    const modesBox = $('stats-modes');
+    modesBox.innerHTML = '';
+    modesBox.appendChild(
+      table(
+        ['Modo', 'Récord', 'Media', 'Partidas', 'Ganadas'],
+        modes.map(function (m) {
+          const g = m.sample;
+          return {
+            onPick: function () {
+              $('f-where').value = String(g.o);
+              $('f-bots').value = String(g.b);
+              $('f-level').value = g.lv;
+              $('f-lives').value = String(g.l);
+              $('f-hazard').value = String(g.h);
+              renderStats();
+            },
+            cells: [
+              { text: Stats.modeLabel(g) },
+              { text: String(m.best), cls: 'num' },
+              { text: String(Math.round(m.avg)) },
+              { text: String(m.n) },
+              { text: m.rivals ? m.wins + ' de ' + m.rivals : '—' },
+            ],
+          };
+        }),
+        'Todavía no hay partidas. Juega una y aparecerá aquí.'
+      )
+    );
+
+    // Lista filtrada y su resumen.
+    const f = statsFilter();
+    const list = all.filter(function (g) {
+      return Stats.matches(g, f);
+    });
+    const sum = Stats.summarize(list);
+    const summary = $('stats-summary');
+    summary.innerHTML = '';
+    if (!sum.n) {
+      summary.textContent = all.length ? 'Ninguna partida con estos filtros.' : '';
+    } else {
+      const add = function (text, strong) {
+        const el = document.createElement(strong ? 'b' : 'span');
+        el.textContent = text;
+        summary.appendChild(el);
+      };
+      add(sum.n + (sum.n === 1 ? ' partida' : ' partidas') + ' · media ');
+      add(Math.round(sum.avg) + ' puntos', true);
+      add(' · récord ');
+      add(String(sum.best), true);
+      add(' · ' + sum.avgSecs.toFixed(1) + ' s y ' + sum.avgStars.toFixed(1) + ' estrellas de media');
+      if (sum.rivals) add(' · ganadas ' + sum.wins + ' de ' + sum.rivals + ' con rivales');
+    }
+
+    const gamesBox = $('stats-games');
+    gamesBox.innerHTML = '';
+    gamesBox.appendChild(
+      table(
+        ['Fecha', 'Puntos', 'Tiempo', 'Estrellas', 'Puesto', 'Modo'],
+        list
+          .slice(-200)
+          .reverse()
+          .map(function (g) {
+            return {
+              cells: [
+                { text: fmtDate(g.d) },
+                { text: String(g.s), cls: 'num' },
+                { text: g.t ? g.t.toFixed(1) + ' s' : '—' },
+                { text: String(g.st) },
+                { text: g.n > 1 ? g.r + 'º de ' + g.n : '—' },
+                { text: Stats.modeLabel(g), cls: 'mode' },
+              ],
+            };
+          }),
+        all.length ? 'Prueba a quitar algún filtro.' : 'Aquí verás cada partida con sus puntos y sus ajustes.'
+      )
+    );
+    $('btn-stats-clear').disabled = !all.length;
+  }
+
+  function openStats() {
+    if (mode || busy) return;
+    statsOpen = true;
+    const sel = $('f-level');
+    const keep = sel.value;
+    sel.innerHTML = '';
+    // Niveles: los actuales y cualquiera que aparezca en partidas antiguas.
+    const names = levels.map(function (lv) {
+      return lv.name;
+    });
+    stats.all().forEach(function (g) {
+      if (g.lv && names.indexOf(g.lv) < 0) names.push(g.lv);
+    });
+    [['', 'Todos']].concat(names.map(function (n) { return [n, n]; })).forEach(function (o) {
+      const opt = document.createElement('option');
+      opt.value = o[0];
+      opt.textContent = o[1];
+      sel.appendChild(opt);
+    });
+    sel.value = names.indexOf(keep) >= 0 ? keep : '';
+    renderStats();
+    show('stats');
+  }
+
+  function closeStats() {
+    statsOpen = false;
+    updateRecord();
+    show('menu');
   }
 
   let toastTimer = 0;
@@ -635,6 +809,20 @@
       if (mode === 'host') host.start(randomSeed());
     });
     $('btn-leave').addEventListener('click', leave);
+    $('btn-stats').addEventListener('click', openStats);
+    $('btn-stats-close').addEventListener('click', closeStats);
+    $('btn-stats-clear').addEventListener('click', function () {
+      if (window.confirm('¿Borrar todas tus partidas y récords guardados en este navegador? No se puede deshacer.')) {
+        stats.clear();
+        renderStats();
+      }
+    });
+    ['f-where', 'f-bots', 'f-level', 'f-lives', 'f-hazard'].forEach(function (id) {
+      $(id).addEventListener('change', renderStats);
+    });
+    ['bots', 'level', 'lives', 'hazard'].forEach(function (id) {
+      $(id).addEventListener('change', updateRecord);
+    });
     $('btn-exit').addEventListener('click', leave);
     const paintMute = function () {
       $('btn-mute').textContent = Sfx.isMuted() ? 'Sonido: no' : 'Sonido: sí';
@@ -671,9 +859,10 @@
         const ph = phase();
         if (ph === 'over' && mode !== 'client') $('btn-again').click();
         else if (ph === 'lobby' && mode === 'host') $('btn-start').click();
-        else if (ph === 'menu' && !busy) $('btn-play').click();
-      } else if (e.code === 'Escape' && mode) {
-        leave();
+        else if (ph === 'menu' && !busy && !statsOpen) $('btn-play').click();
+      } else if (e.code === 'Escape') {
+        if (statsOpen) closeStats();
+        else if (mode) leave();
       }
     });
 
@@ -716,6 +905,9 @@
     },
     levels: function () {
       return levels;
+    },
+    games: function () {
+      return stats.all();
     },
   };
 

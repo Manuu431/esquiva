@@ -1,5 +1,7 @@
 // nn.js — sensores y red neuronal de los bots. Sin DOM: se usa igual en Node (entrenamiento)
 // y en el navegador (partida). La red es fija: N_IN entradas -> N_HID tanh -> 2 salidas tanh.
+// Además de los pesos de la red, cada bot lleva N_SEL números que deciden a por qué estrella va
+// cuando hay rivales (ver targetStar). Todo ello es el "genoma" que ajusta la evolución.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./sim.js'));
   else root.NN = factory(root.Sim);
@@ -13,7 +15,9 @@
   const N_IN = N_SECT * PER_SECT + 4 + 3 + 1;
   const N_HID = 12;
   const N_OUT = 2;
-  const N_W = (N_IN + 1) * N_HID + (N_HID + 1) * N_OUT;
+  const N_NET = (N_IN + 1) * N_HID + (N_HID + 1) * N_OUT; // pesos de la red
+  const N_SEL = 2; // parámetros del criterio para elegir estrella
+  const N_W = N_NET + N_SEL; // tamaño del genoma completo
 
   const SENSE_RANGE = 260; // px: más lejos de esto el bot no "ve" el proyectil
   const WALL_RANGE = 150;
@@ -23,8 +27,53 @@
 
   const _threat = new Float64Array(N_SECT);
 
+  // ¿A por qué estrella va el jugador idx? La más cercana, salvo que un rival le lleve ventaja:
+  //   coste = mi distancia + selA * (ventaja del rival que va hacia ella) + selB * (ventaja de
+  //           cualquier rival, vaya o no hacia ella)
+  // y se queda con la de menor coste. "Ventaja" son los px que ese rival está más cerca que yo.
+  // Con selA = selB = 0 es simplemente la más cercana (y sin rivales, también).
+  function targetStar(s, idx, selA, selB) {
+    const p = s.players[idx];
+    const players = s.players;
+    let best = 0;
+    let bestCost = Infinity;
+    for (let k = 0; k < s.stars.length; k++) {
+      const st = s.stars[k];
+      const mx = st.x - p.x;
+      const my = st.y - p.y;
+      const myD = Math.sqrt(mx * mx + my * my);
+      let going = 0;
+      let any = 0;
+      if (selA !== 0 || selB !== 0) {
+        for (let i = 0; i < players.length; i++) {
+          if (i === idx) continue;
+          const q = players[i];
+          if (!q.alive) continue;
+          const rx = st.x - q.x;
+          const ry = st.y - q.y;
+          const rd = Math.sqrt(rx * rx + ry * ry) || 1e-6;
+          const lead = myD - rd;
+          if (lead <= 0) continue;
+          if (lead > any) any = lead;
+          // ¿Va hacia ella? Coseno entre su movimiento y la dirección a la estrella.
+          if (q.mx !== 0 || q.my !== 0) {
+            const cos = (rx * q.mx + ry * q.my) / (rd * (q.mx !== 0 && q.my !== 0 ? Math.SQRT2 : 1));
+            if (cos > 0 && lead * cos > going) going = lead * cos;
+          }
+        }
+      }
+      const cost = myD + selA * going + selB * any;
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = k;
+      }
+    }
+    return best;
+  }
+
   // Rellena out[0..N_IN) con lo que percibe el jugador idx. Todo en [-1, 1].
-  function sense(s, idx, out) {
+  // selA, selB: criterio para elegir estrella (opcionales; por defecto, la más cercana).
+  function sense(s, idx, out, selA, selB) {
     const p = s.players[idx];
     for (let i = 0; i < N_SECT * PER_SECT; i++) out[i] = 0;
     for (let k = 0; k < N_SECT; k++) _threat[k] = 0;
@@ -73,20 +122,11 @@
     out[o++] = wallNear(p.y - C.PLAYER_R);
     out[o++] = wallNear(C.H - C.PLAYER_R - p.y);
 
-    // De las estrellas que hay en la arena, el bot solo mira la más cercana.
-    let sx = 0;
-    let sy = 0;
-    let sd = Infinity;
-    for (let k = 0; k < s.stars.length; k++) {
-      const ex = s.stars[k].x - p.x;
-      const ey = s.stars[k].y - p.y;
-      const ed = Math.sqrt(ex * ex + ey * ey) || 1e-6;
-      if (ed < sd) {
-        sd = ed;
-        sx = ex;
-        sy = ey;
-      }
-    }
+    // De las estrellas que hay en la arena, el bot solo percibe una: su objetivo.
+    const star = s.stars[targetStar(s, idx, selA || 0, selB || 0)];
+    const sx = star.x - p.x;
+    const sy = star.y - p.y;
+    const sd = Math.sqrt(sx * sx + sy * sy) || 1e-6;
     out[o++] = sx / sd;
     out[o++] = sy / sd;
     out[o++] = 1 - Math.min(1, sd / 1000);
@@ -99,7 +139,8 @@
     return dist >= WALL_RANGE ? 0 : 1 - dist / WALL_RANGE;
   }
 
-  // w: [ (N_IN pesos + sesgo) por neurona oculta ..., (N_HID pesos + sesgo) por salida ... ]
+  // w: [ (N_IN pesos + sesgo) por neurona oculta ..., (N_HID pesos + sesgo) por salida ...,
+  //      selA, selB ]  (los dos últimos no son de la red: los usa targetStar)
   function forward(w, inp, hid, out) {
     let k = 0;
     for (let j = 0; j < N_HID; j++) {
@@ -119,8 +160,14 @@
   // lo mismo que puede hacer un humano con el teclado.
   // opts.delay: ticks de tiempo de reacción (el bot actúa sobre lo que decidió hace `delay` ticks).
   function createBrain(weights, opts) {
-    if (weights.length !== N_W) throw new Error('Se esperaban ' + N_W + ' pesos y hay ' + weights.length);
-    const w = Float64Array.from(weights);
+    // Se admiten genomas antiguos, sin criterio de estrella: equivalen a "la más cercana".
+    if (weights.length !== N_W && weights.length !== N_NET) {
+      throw new Error('Se esperaban ' + N_W + ' pesos y hay ' + weights.length);
+    }
+    const w = new Float64Array(N_W);
+    w.set(weights);
+    const selA = w[N_NET];
+    const selB = w[N_NET + 1];
     const inp = new Float64Array(N_IN);
     const hid = new Float64Array(N_HID);
     const out = new Float64Array(N_OUT);
@@ -129,7 +176,7 @@
     const action = { mx: 0, my: 0 };
 
     function act(s, idx) {
-      sense(s, idx, inp);
+      sense(s, idx, inp, selA, selB);
       forward(w, inp, hid, out);
       const mx = out[0] > DEADZONE ? 1 : out[0] < -DEADZONE ? -1 : 0;
       const my = out[1] > DEADZONE ? 1 : out[1] < -DEADZONE ? -1 : 0;
@@ -163,7 +210,10 @@
     N_HID: N_HID,
     N_OUT: N_OUT,
     N_W: N_W,
+    N_NET: N_NET,
+    N_SEL: N_SEL,
     SENSE_RANGE: SENSE_RANGE,
+    targetStar: targetStar,
     sense: sense,
     forward: forward,
     createBrain: createBrain,

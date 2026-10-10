@@ -44,6 +44,9 @@
     STAR_MARGIN: 50,
     STAR_RESPAWN_DIST: 180, // una estrella no reaparece a menos de esto de quien la cogió
     STAR_MIN_SEP: 140, // ni a menos de esto de otra estrella
+    STAR_PLAYER_DIST: 110, // ni a menos de esto de ningún jugador en pie...
+    STAR_PLAYER_DIST_PER: 10, // ...más esto por cada jugador adicional (con 6 en pie: 160)
+    STAR_TRIES: 16, // sitios que se prueban; si ninguno cumple todo, se queda el mejor
 
     HAZARD_DEFAULT: 1, // dificultad de los proyectiles por defecto (índice de HAZARD_LEVELS)
   });
@@ -129,34 +132,54 @@
     return s;
   }
 
-  // Coloca la estrella k en un sitio al azar: lejos de quien la acaba de coger (para que no
-  // encadene) y separada de las demás (para que haya varias carreras, no una).
+  // Distancia mínima a la que debe aparecer una estrella de cualquier jugador en pie. Crece con
+  // el número de jugadores: cuantos más hay, más fácil es que a alguno le caiga al lado.
+  function starPlayerDist(s) {
+    let alive = 0;
+    for (let i = 0; i < s.players.length; i++) if (s.players[i].alive) alive++;
+    return C.STAR_PLAYER_DIST + C.STAR_PLAYER_DIST_PER * Math.max(0, alive - 1);
+  }
+
+  // Coloca la estrella k en un sitio al azar que esté lejos de todos los jugadores (nadie la
+  // recibe regalada), más lejos aún de quien la acaba de coger (para que no encadene) y separada
+  // de las demás (para que haya varias carreras, no una). Se prueban varios sitios; si ninguno
+  // lo cumple todo (arena muy llena), se queda el que más se acerca.
   function placeStar(s, k, avoidIdx) {
     const m = C.STAR_MARGIN;
-    const avoid = avoidIdx >= 0 ? s.players[avoidIdx] : null;
-    const far2 = C.STAR_RESPAWN_DIST * C.STAR_RESPAWN_DIST;
-    const sep2 = C.STAR_MIN_SEP * C.STAR_MIN_SEP;
-    let x = 0;
-    let y = 0;
-    for (let tries = 0; tries < 10; tries++) {
-      x = m + rand(s) * (C.W - 2 * m);
-      y = m + rand(s) * (C.H - 2 * m);
-      let ok = true;
-      if (avoid) {
-        const dx = x - avoid.x;
-        const dy = y - avoid.y;
-        ok = dx * dx + dy * dy >= far2;
+    const need = starPlayerDist(s);
+    let bestX = 0;
+    let bestY = 0;
+    let bestQ = -1;
+    for (let tries = 0; tries < C.STAR_TRIES; tries++) {
+      const x = m + rand(s) * (C.W - 2 * m);
+      const y = m + rand(s) * (C.H - 2 * m);
+      // q = la peor de las distancias, cada una medida respecto a la que se pide (1 = cumple).
+      let q = 1;
+      for (let i = 0; i < s.players.length; i++) {
+        const p = s.players[i];
+        if (!p.alive) continue;
+        const dx = x - p.x;
+        const dy = y - p.y;
+        const want = i === avoidIdx && C.STAR_RESPAWN_DIST > need ? C.STAR_RESPAWN_DIST : need;
+        const r = Math.sqrt(dx * dx + dy * dy) / want;
+        if (r < q) q = r;
       }
-      for (let j = 0; ok && j < s.stars.length; j++) {
+      for (let j = 0; j < s.stars.length; j++) {
         if (j === k) continue;
         const dx = x - s.stars[j].x;
         const dy = y - s.stars[j].y;
-        ok = dx * dx + dy * dy >= sep2;
+        const r = Math.sqrt(dx * dx + dy * dy) / C.STAR_MIN_SEP;
+        if (r < q) q = r;
       }
-      if (ok) break;
+      if (q > bestQ) {
+        bestQ = q;
+        bestX = x;
+        bestY = y;
+        if (q >= 1) break;
+      }
     }
-    s.stars[k].x = x;
-    s.stars[k].y = y;
+    s.stars[k].x = bestX;
+    s.stars[k].y = bestY;
   }
 
   // Punto del perímetro (justo fuera de la arena) para una fracción u en [0,1).
@@ -374,6 +397,7 @@
   return {
     C: C,
     HAZARD_LEVELS: HAZARD_LEVELS,
+    starPlayerDist: starPlayerDist,
     createState: createState,
     step: step,
     movePlayer: movePlayer,

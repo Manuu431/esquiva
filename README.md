@@ -114,10 +114,15 @@ el bot va a por la de menor coste:
   ir a por lo que otro va a coger antes);
 - a una mejora se le resta lo que el bot la valora, medido en píxeles de desvío.
 
-Esos 9 números (2 para los rivales y uno por cada mejora) forman parte del «genoma» del bot junto
-con los 458 pesos de la red, y los ajusta la evolución igual que los pesos. Lo que salió: el
-campeón valora mucho el escudo (653 px), bastante el corazón (321), el fantasma (239) y el doble
-(220), algo el imán (153), casi nada el turbo (18) y nada la bomba.
+Además, una estrella que vale más «tira» más: cuenta como si estuviera más cerca.
+
+Esos 10 números (2 para los rivales, uno por cada mejora y uno para el valor de las estrellas)
+forman parte del «genoma» del bot junto con los 458 pesos de la red, y los ajusta la evolución
+igual que los pesos. Lo que salió cambia con las reglas, y eso es lo interesante. Antes de la
+racha el campeón valoraba sobre todo el escudo (653 px) y el corazón (321). Con la racha, lo que
+más valora es el **imán** (578 px: coger estrellas desde lejos mantiene la racha) y el **corazón**
+(518); el escudo bajó a 79, la bomba sigue sin interesarle (12) y el valor de las estrellas apenas
+le influye (21 px): prefiere la que tiene cerca a desviarse por una azul.
 
 El entrenamiento es un algoritmo evolutivo clásico: una población de redes juega varias partidas;
 las mejores se quedan (élite), el resto se elige por torneo, se cruzan neurona a neurona y se
@@ -129,6 +134,8 @@ mutan con ruido gaussiano. Ha tenido tres fases:
    su población; aprende a competir por las estrellas.
 3. **En arena con mejoras** (250 generaciones más, en mesas de 2, 4 y 6): aprende qué mejoras
    merecen el desvío.
+4. **En arena con las reglas actuales** (200 más: estrellas de tres valores, racha, prórroga y
+   enemigos nuevos). Aquí la mejora fue pequeña: los bots ya se defendían bien con lo aprendido.
 
 Resultados jugando solos, en 60 partidas que ningún bot había visto, con las reglas de referencia
 (3 vidas, proyectiles normales, con mejoras). Detalle por generación en `train/results/` y en
@@ -138,8 +145,8 @@ Resultados jugando solos, en 60 partidas que ningún bot había visto, con las r
 |---|---:|---:|---:|
 | Red, generación 6 (nivel Fácil, con 150 ms de reacción) | 4203 | 22 s | 6 |
 | Red, generación 40 (nivel Normal, con 100 ms de reacción) | 15778 | 33 s | 19 |
-| Red, campeón final con 100 ms de reacción (nivel Difícil) | 25205 | 41 s | 26 |
-| **Red, campeón final (nivel Experto)** | **40687** | **58 s** | **40** |
+| Red, campeón final con 100 ms de reacción (nivel Difícil) | 26164 | 40 s | 26 |
+| **Red, campeón final (nivel Experto)** | **41276** | **51 s** | **39** |
 | **Modo Dios** (planificador; 20 partidas) | **184558** | **208 s** | **168** |
 
 Los puntos son tan altos por la racha: quien encadena estrellas las cobra al triple. Un jugador
@@ -151,10 +158,11 @@ Y unos contra otros, que es lo que importa en una partida de verdad (partidas de
 |---|---|---:|
 | campeones de la fase 2 | campeones de la fase 1 | 96 % de 80 |
 | campeones de la fase 3 | campeones de la fase 2 | 85 % de 80 |
-| un Modo Dios | tres campeones de la fase 3 | 20 de 20 |
+| campeones de la fase 4 | campeones de la fase 3 | 59 % de 200 |
+| un Modo Dios | tres campeones de la fase 4 | 20 de 20 |
 | el mejor «campero» posible (solo esquiva) | 1, 3 o 5 bots Experto | 0 de 30 en cada caso |
 
-(Las tres primeras filas se midieron al acabar cada fase, con las reglas de ese momento.)
+(Las cuatro primeras filas se midieron al acabar cada fase, con las reglas de ese momento.)
 
 ### El Modo Dios
 

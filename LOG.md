@@ -740,12 +740,56 @@ Pruebas: 114 tests de Node (entre ellos: cada dificultad saca solo sus enemigos;
 sobrevive al primer minuto en Imposible y rodea una mina; la prórroga en sus tres finales).
 Navegador: un jugador, dos pestañas con y sin retraso, sala llena y relevo, en verde.
 
+## Iteración 13 — Reentrenamiento con las reglas nuevas: mejora pequeña (2026-10-10)
+
+`arena3`: 200 generaciones desde los bots publicados, ya con estrellas de tres valores, racha,
+prórroga y los enemigos de cada dificultad (la mitad de las partidas en Normal, el resto en Suave,
+Intensa e Imposible). `train/results/arena3.csv`.
+
+La curva no enseña gran cosa: la media de la población va de 27469 a 27973 y la validación del
+campeón contra tres publicados oscila entre el 25 % y el 56 % de victorias. Para decidir hice una
+comparación larga, 200 partidas de 4 (dos contra dos) por dificultad:
+
+| proyectiles | nuevos (puntos, rondas ganadas) | publicados |
+|-------------|--------------------------------:|-----------:|
+| normales    |                    30854 · 59 % | 30437 · 41 % |
+| intensos    |                    23063 · 55 % | 22021 · 45 % |
+| imposibles  |                    14167 · 53 % | 13476 · 48 % |
+
+Ventaja pequeña (1-5 % en puntos) pero en el mismo sentido en las tres. **Integrado**, sin
+venderlo como más de lo que es: los bots anteriores ya jugaban bien con las reglas nuevas.
+Jugando solos: Difícil 26164 puntos, Experto 41276 (antes 25205 y 40687), aunque el Experto
+aguanta algo menos (50,5 s frente a 57,5 s): arriesga más.
+
+Lo que la evolución hizo con el criterio, que es lo más curioso de esta fase:
+
+| lo que valora el campeón (px) | antes de la racha | con la racha |
+|-------------------------------|------------------:|-------------:|
+| escudo                        |               653 |           79 |
+| corazón                       |               321 |          518 |
+| imán                          |               153 |          578 |
+| fantasma                      |               239 |           75 |
+| doble                         |               220 |           58 |
+| turbo                         |                18 |          102 |
+| bomba                         |               -38 |           12 |
+| que una estrella valga el doble | (no existía)    |           21 |
+
+El imán pasa de secundario a ser lo más valioso: con racha, coger estrellas desde lejos mantiene el
+multiplicador. Y el valor de las estrellas casi no pesa (21 px): al bot le compensa más no romper
+la racha con la estrella que tiene cerca que desviarse por una azul. Cautela: es un solo
+entrenamiento; números como estos bailan de una ejecución a otra.
+
+Modo Dios contra tres de los nuevos: 61854 puntos frente a 28981, 20 de 20.
+
 ### Punto de control (para retomar)
 
-En marcha en segundo plano: `train/evolve-arena.js --name arena3` (200 generaciones con las
-reglas nuevas; aprende lo que pesa el valor de una estrella) y `train/export.js --run arena2`
-(vuelve a medir los niveles publicados con las reglas nuevas). Cuando acabe `arena3`:
-`node train/export.js --run arena3 --easy tca`, publicar si gana a lo publicado, y apuntarlo.
-Pendiente y opcional: tormenta como regla (el usuario la propuso; no la eligió), y el punto E del
-plan (experimentos largos).
+Hecho A, B, C y D del plan, y las peticiones posteriores (estrellas, enemigos, racha, prórroga).
+Sin tareas en segundo plano. Pendiente y opcional:
+- Tormenta como regla (la propuso el usuario; eligió prórroga y racha).
+- Equilibrio: con la racha, aguantar vale muy poco frente a las estrellas. Si se nota al jugar,
+  subir lo que da cada segundo en pie.
+- Punto E del plan (experimentos largos): varias semillas, que la red elija objetivo, más de un
+  proyectil por sector.
+- Sin probar: redes distintas, móvil real, y la comparación con un humano (el juego ya guarda
+  todas sus partidas).
 

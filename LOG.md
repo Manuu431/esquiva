@@ -266,3 +266,27 @@ inicia sesión.
   git. El inicio de sesión lo hace el usuario con `.tools/login-github.cmd`; yo no veo ni toco la
   contraseña ni el token (lo guarda GitHub CLI en el almacén de credenciales de Windows).
 - Añadidos `LICENSE` (MIT) y `.nojekyll`.
+
+Hecho, en este orden:
+1. El usuario inició sesión (cuenta `Manuu431`). ID obtenido con `gh api user`.
+2. Los commits locales se reescribieron (autor y committer) con su dirección noreply de GitHub.
+   Comprobado que no queda ninguna dirección personal ni en el historial ni en los ficheros.
+3. Repositorio público creado: https://github.com/Manuu431/esquiva. Push de `main`.
+   El push usa la sesión de GitHub CLI mediante una configuración local del repositorio; no se
+   ha tocado la configuración global de git.
+4. GitHub Pages activado desde la rama `main`, carpeta raíz. Tardó unos 30 s en compilar.
+5. **Juego publicado en https://manuu431.github.io/esquiva/**
+
+Verificación contra la URL pública:
+- La página y sus ficheros responden 200 (`index.html`, `js/sim.js`, PeerJS, `weights.json`, CSS).
+- `node test/browser/online.js https://manuu431.github.io/esquiva/`: dos pestañas reales crean una
+  sala, una entra con el enlace, juegan, acaba la ronda, juegan otra y la invitada detecta el
+  cierre del anfitrión. Pasa.
+- Los 4 niveles de bot cargan y se puede jugar contra ellos; sin errores en la consola.
+
+Lo que NO está verificado y solo se puede comprobar jugando de verdad:
+- Dos o más personas en redes distintas (todas las pruebas han sido pestañas del mismo ordenador).
+- Móvil real (el control táctil solo se ha probado emulado en Chrome).
+- La comparación de los bots con un humano: falta que alguien juegue en solitario.
+
+Para actualizar la web basta con hacer commit y `git push`; Pages se recompila sola.

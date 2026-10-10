@@ -164,13 +164,62 @@ console.log('Campeones finales contra la referencia (80 partidas de 4, 2 contra 
 console.log('  campeones:  ' + duel.a.score.toFixed(0) + ' puntos, ' + duel.a.stars.toFixed(1) + ' estrellas, ganan el ' + (100 * duel.a.wins).toFixed(0) + ' %');
 console.log('  referencia: ' + duel.b.score.toFixed(0) + ' puntos, ' + duel.b.stars.toFixed(1) + ' estrellas, ganan el ' + (100 * duel.b.wins).toFixed(0) + ' %');
 
+// ...y contra los bots que había publicados hasta ahora (si los hay), para ver qué se ha ganado.
+const file = path.join(__dirname, '..', 'weights.json');
+if (fs.existsSync(file)) {
+  const old = JSON.parse(fs.readFileSync(file, 'utf8')).levels.filter(function (lv) {
+    return lv.variants;
+  });
+  const prev = old[old.length - 1].variants.map(full);
+  const d = A.duel(top, prev, ARENA_TEST, 0);
+  console.log('Campeones finales contra los publicados hasta ahora (80 partidas de 4, 2 contra 2):');
+  console.log('  nuevos:     ' + d.a.score.toFixed(0) + ' puntos, ' + d.a.stars.toFixed(1) + ' estrellas, ganan el ' + (100 * d.a.wins).toFixed(0) + ' %');
+  console.log('  publicados: ' + d.b.score.toFixed(0) + ' puntos, ' + d.b.stars.toFixed(1) + ' estrellas, ganan el ' + (100 * d.b.wins).toFixed(0) + ' %');
+}
+
+// ---------- Modo Dios: no es una red, pero viaja en el mismo fichero con sus parámetros ----------
+const God = require('../js/god.js');
+const godFile = path.join(__dirname, 'results', 'god.json');
+const godParams = fs.existsSync(godFile) ? JSON.parse(fs.readFileSync(godFile, 'utf8')).params : God.DEFAULTS;
+const GOD_GAMES = 20;
+const godSolo = E.measure(function () {
+  return God.createBot(godParams);
+}, E.TEST.slice(0, GOD_GAMES));
+// Un Modo Dios contra tres campeones de red.
+let godWins = 0;
+let godScore = 0;
+let netScore = 0;
+ARENA_TEST.slice(0, GOD_GAMES).forEach(function (seed, g) {
+  const slot = g % 4;
+  let k = 0;
+  const makers = [];
+  for (let i = 0; i < 4; i++) {
+    makers.push(i === slot ? function () { return God.createBot(godParams); } : T.brainController(top[(k++ + g) % top.length], 0));
+  }
+  const r = T.playArena(makers, seed, E.MAX_TICKS);
+  r.players.forEach(function (p, i) {
+    if (i === slot) godScore += p.score / GOD_GAMES;
+    else netScore += p.score / (3 * GOD_GAMES);
+  });
+  if (r.winner === slot) godWins++;
+});
+console.log('');
+console.log('Modo Dios (' + GOD_GAMES + ' partidas): solo ' + godSolo.score.toFixed(0) + ' puntos, ' + godSolo.secs.toFixed(1) + ' s, ' + godSolo.stars.toFixed(1) + ' estrellas');
+console.log('  contra 3 campeones de red: ' + godScore.toFixed(0) + ' puntos frente a ' + netScore.toFixed(0) + '; gana ' + godWins + ' de ' + GOD_GAMES);
+levels.push({
+  name: 'Modo Dios',
+  kind: 'god',
+  params: godParams,
+  test: { score: Math.round(godSolo.score), secs: +godSolo.secs.toFixed(1), stars: +godSolo.stars.toFixed(1) },
+  arena: { score: Math.round(godScore), rivals: Math.round(netScore), wins: godWins, games: GOD_GAMES },
+});
+
 const out = {
-  version: 2,
+  version: 3,
   arch: { inputs: NN.N_IN, hidden: NN.N_HID, outputs: NN.N_OUT, weights: NN.N_W },
   training: { run: RUN, easy: EASY, generations: main.champs.length, population: main.cfg.pop, testGames: E.TEST.length },
   levels: levels,
 };
-const file = path.join(__dirname, '..', 'weights.json');
 fs.writeFileSync(file, JSON.stringify(out));
 console.log('');
 console.log('Escrito ' + file + ' (' + (fs.statSync(file).size / 1024).toFixed(1) + ' KB)');

@@ -622,3 +622,11 @@ retraso, sala llena de 6 y relevo con tres pestañas. Las de dos pestañas falla
 por congelaciones del propio Chrome de pruebas en afirmaciones de tiempo (1 de cada 5 con el
 portátil cargado); el fallo del relevo indebido no ha vuelto a aparecer.
 
+
+### Punto de control (para retomar)
+
+En marcha en segundo plano: `train/evolve-arena.js --name arena2` (bots de red con mejoras, mesas de
+2, 4 y 6; deja `train/runs/arena2/`) y `train/tune-god.js` (deja `train/results/god.json`).
+Cuando acaben: `node train/export.js --run arena2 --easy tca` (compara los nuevos con los
+publicados y añade el nivel Modo Dios con sus parámetros), pasar todas las pruebas, publicar si
+mejoran, y apuntar aquí las métricas. Después, el punto E del plan (experimentos largos).

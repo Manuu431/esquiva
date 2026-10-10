@@ -492,3 +492,21 @@ bots si no había niveles. Corregido: el juego acepta los dos formatos, y la pru
 Pruebas: 69 tests de Node (7 nuevos del registro, y los de colocación de estrellas y elección de
 estrella); en navegador, un jugador (incluye el registro y sus filtros), dos pestañas y sala llena.
 
+
+## Plan del bucle autónomo (2026-10-10, el usuario no está)
+
+Encargo: hacer todos los puntos que propuse, añadir una dificultad "Imposible" para los
+proyectiles, un bot "Modo Dios" lo más perfecto posible, elementos extra (mejoras de velocidad,
+intangible y más) y entrenar a los bots para que los aprovechen. Orden y estado:
+
+- [ ] A. Simulación: dificultad Imposible, proyectiles nuevos (rebotan, ráfagas) y mejoras
+      (turbo, fantasma, escudo, corazón, bomba, doble, imán), con red, dibujo, menú y registro.
+- [ ] B. Bots: sensores y genoma para las mejoras; entrenamiento en arena con 2, 4 y 6 jugadores;
+      bot "Modo Dios" (planificador); niveles mezclados; nivel adaptativo.
+- [ ] C. Juego: pausa en local, repeticiones, exportar el registro, ayuda con las mejoras.
+- [ ] D. Robustez: retraso de red simulado en las pruebas de navegador; traspaso de anfitrión.
+- [ ] E. Experimentos largos: repetir entrenamientos con varias semillas; que la red elija estrella;
+      más proyectiles por sector para acercarse al techo.
+
+Reglas que mantengo: solo esta carpeta, pruebas antes de cada publicación, y cada iteración queda
+apuntada aquí debajo.

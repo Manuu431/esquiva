@@ -15,7 +15,7 @@
   'use strict';
 
   const C = Sim.C;
-  const PROTOCOL = 2; // 2: varias estrellas y reglas de ronda (vidas, dificultad)
+  const PROTOCOL = 3; // 3: mejoras, efectos de los jugadores y proyectiles que rebotan
   const STEP_MS = 1000 / C.TICK_HZ;
   const SNAP_EVERY = 3; // ticks entre instantáneas (20 por segundo)
   const COUNTDOWN_TICKS = 3 * C.TICK_HZ;
@@ -24,9 +24,10 @@
   const HOST_TIMEOUT_MS = 6000; // sin noticias del anfitrión: partida perdida
   const PING_MS = 500;
   const MAX_EXTRAP_TICKS = 30; // si dejan de llegar instantáneas no se extrapola más de 0,5 s
-  const P_FIELDS = 10;
-  const H_FIELDS = 5;
-  const EVENT_TYPES = ['hit', 'dead', 'star', 'over'];
+  const P_FIELDS = 15;
+  const H_FIELDS = 6;
+  const U_FIELDS = 4;
+  const EVENT_TYPES = ['hit', 'dead', 'star', 'over', 'power', 'bomb', 'shield'];
 
   function r10(v) {
     return Math.round(v * 10);
@@ -46,21 +47,29 @@
     const p = [];
     for (let i = 0; i < s.players.length; i++) {
       const q = s.players[i];
-      p.push(r10(q.x), r10(q.y), q.mx, q.my, q.lives, q.inv, q.alive ? 1 : 0, q.score, q.stars, q.deathTick);
+      p.push(r10(q.x), r10(q.y), q.mx, q.my, q.lives, q.inv, q.alive ? 1 : 0, q.score, q.stars, q.deathTick,
+        q.turbo | 0, q.ghost | 0, q.shield | 0, q.double | 0, q.magnet | 0);
     }
     const h = [];
     for (let i = 0; i < s.hazards.length; i++) {
       const z = s.hazards[i];
-      h.push(r10(z.x), r10(z.y), r10(z.vx), r10(z.vy), r10(z.r));
+      // Último campo: tipo y rebotes que le quedan, juntos.
+      h.push(r10(z.x), r10(z.y), r10(z.vx), r10(z.vy), r10(z.r), (z.k | 0) * 4 + (z.b | 0));
     }
     const e = [];
     for (let i = 0; i < events.length; i++) {
       const ev = events[i];
-      e.push(EVENT_TYPES.indexOf(ev.type), ev.p, Math.round(ev.x), Math.round(ev.y));
+      // Segundo campo: jugador y, si es una mejora, cuál.
+      e.push(EVENT_TYPES.indexOf(ev.type), ev.p + 16 * (ev.k | 0), Math.round(ev.x), Math.round(ev.y));
     }
     const st = [];
     for (let i = 0; i < s.stars.length; i++) st.push(r10(s.stars[i].x), r10(s.stars[i].y));
-    return { t: 's', r: round, k: s.tick, o: s.over ? 1 : 0, w: s.winner, l: s.maxLives, p: p, h: h, s: st, e: e, a: -1 };
+    const u = [];
+    for (let i = 0; i < s.powerups.length; i++) {
+      const w = s.powerups[i];
+      u.push(w.type, r10(w.x), r10(w.y), w.ttl);
+    }
+    return { t: 's', r: round, k: s.tick, o: s.over ? 1 : 0, w: s.winner, l: s.maxLives, p: p, h: h, s: st, u: u, e: e, a: -1 };
   }
 
   // Devuelve un objeto con la misma forma que el estado de sim.js (lo justo para dibujar).
@@ -78,20 +87,29 @@
         score: m.p[i + 7],
         stars: m.p[i + 8],
         deathTick: m.p[i + 9],
+        turbo: m.p[i + 10],
+        ghost: m.p[i + 11],
+        shield: m.p[i + 12],
+        double: m.p[i + 13],
+        magnet: m.p[i + 14],
       });
     }
     const hazards = [];
     for (let i = 0; i + H_FIELDS <= m.h.length; i += H_FIELDS) {
-      hazards.push({ x: m.h[i] / 10, y: m.h[i + 1] / 10, vx: m.h[i + 2] / 10, vy: m.h[i + 3] / 10, r: m.h[i + 4] / 10 });
+      hazards.push({ x: m.h[i] / 10, y: m.h[i + 1] / 10, vx: m.h[i + 2] / 10, vy: m.h[i + 3] / 10, r: m.h[i + 4] / 10, k: m.h[i + 5] >> 2, b: m.h[i + 5] & 3 });
     }
     const stars = [];
     for (let i = 0; i + 2 <= m.s.length; i += 2) stars.push({ x: m.s[i] / 10, y: m.s[i + 1] / 10 });
+    const powerups = [];
+    const u = m.u || [];
+    for (let i = 0; i + U_FIELDS <= u.length; i += U_FIELDS) powerups.push({ type: u[i], x: u[i + 1] / 10, y: u[i + 2] / 10, ttl: u[i + 3] });
     return {
       tick: m.k,
       over: m.o === 1,
       winner: m.w,
       maxLives: m.l,
       stars: stars,
+      powerups: powerups,
       numPlayers: players.length,
       players: players,
       hazards: hazards,
@@ -100,7 +118,7 @@
 
   function decodeEvents(e) {
     const out = [];
-    for (let i = 0; i + 4 <= e.length; i += 4) out.push({ type: EVENT_TYPES[e[i]], p: e[i + 1], x: e[i + 2], y: e[i + 3] });
+    for (let i = 0; i + 4 <= e.length; i += 4) out.push({ type: EVENT_TYPES[e[i]], p: e[i + 1] & 15, k: e[i + 1] >> 4, x: e[i + 2], y: e[i + 3] });
     return out;
   }
 
@@ -123,6 +141,7 @@
       level: 0,
       lives: C.LIVES, // reglas de la ronda, las fija el anfitrión
       hazard: C.HAZARD_DEFAULT,
+      powerups: true,
       members: [{ id: null, name: cleanName(o.name), wins: 0 }], // id null = el anfitrión
       roster: [], // quién juega la ronda en curso: { name, kind, level, wins }
       state: null,
@@ -148,6 +167,7 @@
         level: host.level,
         lives: host.lives,
         hazard: host.hazard,
+        power: host.powerups ? 1 : 0,
         members: host.members.map(function (m) {
           return { name: m.name, wins: m.wins, host: m.id === null };
         }),
@@ -231,9 +251,10 @@
       changed();
     };
 
-    host.setRules = function (lives, hazard) {
+    host.setRules = function (lives, hazard, powerups) {
       host.lives = Math.max(C.LIVES_MIN, Math.min(C.LIVES_MAX, lives | 0 || C.LIVES));
       host.hazard = Math.max(0, Math.min(Sim.HAZARD_LEVELS.length - 1, hazard | 0));
+      if (powerups !== undefined) host.powerups = !!powerups;
       changed();
     };
 
@@ -273,7 +294,7 @@
       }
       host.roster = roster;
       host.round++;
-      host.state = Sim.createState({ seed: seed, numPlayers: roster.length, lives: host.lives, hazard: host.hazard });
+      host.state = Sim.createState({ seed: seed, numPlayers: roster.length, lives: host.lives, hazard: host.hazard, powerups: host.powerups });
       host.phase = 'countdown';
       host.countdown = COUNTDOWN_TICKS;
       pendingEvents = [];
@@ -351,7 +372,7 @@
     let rtt = -1;
     let n = 0;
     let pending = [];
-    const pred = { x: 0, y: 0, mx: 0, my: 0 };
+    const pred = { x: 0, y: 0, mx: 0, my: 0, turbo: 0 };
     const off = { x: 0, y: 0 }; // corrección visual pendiente de absorber
     let shown = []; // posiciones suavizadas de los demás
     let predReady = false;
@@ -360,7 +381,7 @@
     let lastTickMs = 0;
     let cdEnd = 0;
     const view = { state: null, meta: [], localIdx: -1, countdown: 0, hazExt: 0, plExt: 0 };
-    const viewState = { tick: 0, over: false, winner: -1, maxLives: C.LIVES, numPlayers: 0, players: [], hazards: [], stars: [] };
+    const viewState = { tick: 0, over: false, winner: -1, maxLives: C.LIVES, numPlayers: 0, players: [], hazards: [], stars: [], powerups: [] };
 
     const client = {
       phase: 'connecting', // connecting | lobby | countdown | playing | over
@@ -442,6 +463,7 @@
         const oy = pred.y;
         pred.x = sp.x;
         pred.y = sp.y;
+        pred.turbo = sp.turbo;
         let keep = 0;
         for (let i = 0; i < pending.length; i++) {
           const inp = pending[i];
@@ -498,6 +520,7 @@
         pending.push(inp);
         if (pending.length > 120) pending.shift();
         Sim.movePlayer(pred, inp.mx, inp.my);
+        if (pred.turbo > 0) pred.turbo--;
         o.send({ t: 'i', r: round, n: n, mx: inp.mx, my: inp.my });
       } else {
         pred.mx = pred.my = 0;
@@ -510,7 +533,7 @@
       for (let i = 0; i < snap.players.length; i++) {
         if (i === me) continue;
         const p = snap.players[i];
-        const k = p.alive ? C.PLAYER_SPEED * C.DT * ahead * (p.mx && p.my ? Math.SQRT1_2 : 1) : 0;
+        const k = p.alive ? C.PLAYER_SPEED * C.DT * ahead * (p.mx && p.my ? Math.SQRT1_2 : 1) * (p.turbo > 0 ? C.TURBO_SPEED : 1) : 0;
         const tx = Math.max(C.PLAYER_R, Math.min(C.W - C.PLAYER_R, p.x + p.mx * k));
         const ty = Math.max(C.PLAYER_R, Math.min(C.H - C.PLAYER_R, p.y + p.my * k));
         const sh = shown[i] || (shown[i] = { x: tx, y: ty });
@@ -537,6 +560,7 @@
       viewState.numPlayers = snap.numPlayers;
       viewState.hazards = snap.hazards;
       viewState.stars = snap.stars;
+      viewState.powerups = snap.powerups;
       viewState.maxLives = snap.maxLives;
       viewState.players.length = snap.players.length;
       const me = view.localIdx;
@@ -549,10 +573,15 @@
         d.score = p.score;
         d.stars = p.stars;
         d.deathTick = p.deathTick;
+        d.turbo = p.turbo;
+        d.ghost = p.ghost;
+        d.shield = p.shield;
+        d.double = p.double;
+        d.magnet = p.magnet;
         if (i === me && p.alive && client.phase === 'playing') {
           // Propio: predicción + fracción de tick transcurrida, para que no dé tirones.
           const frac = Math.min(1, Math.max(0, (now - lastTickMs) / STEP_MS));
-          const k = C.PLAYER_SPEED * C.DT * frac * (pred.mx && pred.my ? Math.SQRT1_2 : 1);
+          const k = C.PLAYER_SPEED * C.DT * frac * (pred.mx && pred.my ? Math.SQRT1_2 : 1) * (pred.turbo > 0 ? C.TURBO_SPEED : 1);
           d.x = Math.max(C.PLAYER_R, Math.min(C.W - C.PLAYER_R, pred.x + off.x + pred.mx * k));
           d.y = Math.max(C.PLAYER_R, Math.min(C.H - C.PLAYER_R, pred.y + off.y + pred.my * k));
           d.mx = pred.mx;

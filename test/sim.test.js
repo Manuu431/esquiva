@@ -303,7 +303,9 @@ test('las vidas se pueden elegir entre 1 y 5 (3 por defecto)', () => {
 test('la dificultad de los proyectiles cambia su velocidad y su ritmo', () => {
   for (const t of [0, 20, 60]) {
     assert.ok(Sim.hazardSpeed(t, 0) < Sim.hazardSpeed(t, 1) && Sim.hazardSpeed(t, 1) < Sim.hazardSpeed(t, 2));
+    assert.ok(Sim.hazardSpeed(t, 2) < Sim.hazardSpeed(t, 3), 'imposible es más rápida que intensa');
     assert.ok(Sim.spawnInterval(t, 0) > Sim.spawnInterval(t, 1) && Sim.spawnInterval(t, 1) > Sim.spawnInterval(t, 2));
+    assert.ok(Sim.spawnInterval(t, 2) > Sim.spawnInterval(t, 3));
     assert.equal(Sim.hazardSpeed(t), Sim.hazardSpeed(t, 1), 'por defecto, normal');
     assert.equal(Sim.spawnInterval(t), Sim.spawnInterval(t, 1));
   }
@@ -328,7 +330,7 @@ test('la dificultad de los proyectiles cambia su velocidad y su ritmo', () => {
   const intensa = medir(2);
   assert.ok(suave.n < normal.n * 0.85 && normal.n < intensa.n * 0.85, 'ritmo: ' + [suave.n, normal.n, intensa.n]);
   assert.ok(suave.speed < normal.speed * 0.9 && normal.speed < intensa.speed * 0.9, 'velocidad');
-  assert.equal(Sim.createState({ seed: 1, hazard: 9 }).hazard, 2, 'fuera de rango se recorta');
+  assert.equal(Sim.createState({ seed: 1, hazard: 9 }).hazard, 3, 'fuera de rango se recorta');
   assert.equal(Sim.createState({ seed: 1 }).hazard, C.HAZARD_DEFAULT);
 });
 
@@ -417,4 +419,238 @@ test('eliminar a un jugador (desconexión) lo saca de la ronda y puede acabarla'
   assert.equal(s.players[1].score, score, 'el eliminado ya no puntúa');
   Sim.eliminate(s, 2); // con la ronda acabada no hace nada
   assert.equal(s.players[2].alive, true);
+});
+
+// ---------- Proyectiles especiales ----------
+
+test('los proyectiles que rebotan cambian de sentido en la pared y luego salen', () => {
+  const z = { x: 780, y: 300, vx: 300, vy: 0, r: 10, k: 1, b: 1 };
+  let rebotes = 0;
+  let vxAntes = z.vx;
+  for (let t = 0; t < 600; t++) {
+    Sim.moveHazard(z, C.DT);
+    if (Math.sign(z.vx) !== Math.sign(vxAntes)) rebotes++;
+    vxAntes = z.vx;
+    if (z.b > 0) assert.ok(z.x <= C.W - z.r + 1e-9, 'mientras le quedan rebotes no cruza la pared');
+  }
+  assert.equal(rebotes, 1);
+  assert.equal(z.b, 0);
+  assert.ok(z.x < -C.OUT_MARGIN, 'gastados los rebotes, acaba saliendo por el otro lado');
+});
+
+test('un proyectil recién nacido fuera de la arena entra sin rebotar', () => {
+  const z = { x: -10, y: 300, vx: 300, vy: 0, r: 10, k: 1, b: 2 };
+  Sim.moveHazard(z, C.DT);
+  assert.equal(z.vx, 300);
+  assert.equal(z.b, 2);
+});
+
+test('hazardPos predice exactamente dónde estará un proyectil, rebotes incluidos', () => {
+  for (const z0 of [
+    { x: 100, y: 100, vx: 250, vy: -180, r: 9, k: 0, b: 0 },
+    { x: 700, y: 520, vx: 330, vy: 280, r: 12, k: 1, b: 2 },
+    { x: 60, y: 40, vx: -400, vy: -150, r: 8, k: 1, b: 1 },
+  ]) {
+    const real = Object.assign({}, z0);
+    const out = { x: 0, y: 0 };
+    for (let t = 1; t <= 45; t++) {
+      Sim.moveHazard(real, C.DT);
+      Sim.hazardPos(z0, t * C.DT, out);
+      assert.ok(Math.abs(out.x - real.x) < 1e-6 && Math.abs(out.y - real.y) < 1e-6, 'tick ' + t);
+    }
+    assert.equal(z0.b, z0.k === 0 ? 0 : z0.b, 'no modifica el original');
+  }
+});
+
+test('aparecen proyectiles que rebotan y ráfagas, pero no al principio', () => {
+  const s = Sim.createState({ seed: 5, powerups: false });
+  s.players[0].lives = 1e9;
+  const seen = new Set();
+  const kinds = [0, 0, 0];
+  let tempranos = 0;
+  for (let t = 0; t < 60 * 70; t++) {
+    Sim.step(s, [wiggle(s.tick, 0)]);
+    for (const z of s.hazards) {
+      if (seen.has(z)) continue;
+      seen.add(z);
+      kinds[z.k]++;
+      if (z.k !== 0 && s.tick < C.BOUNCER_FROM * 60) tempranos++;
+    }
+  }
+  assert.equal(tempranos, 0, 'los primeros segundos solo hay proyectiles normales');
+  assert.ok(kinds[0] > kinds[1] && kinds[0] > kinds[2], 'la mayoría son normales: ' + kinds);
+  assert.ok(kinds[1] > 5, 'hay rebotadores: ' + kinds[1]);
+  assert.ok(kinds[2] >= 9 && kinds[2] % 3 === 0, 'las ráfagas son de tres: ' + kinds[2]);
+});
+
+// ---------- Mejoras ----------
+
+const POWER = { turbo: 0, ghost: 1, shield: 2, heart: 3, bomb: 4, double: 5, magnet: 6 };
+
+function quiet(opts) {
+  const s = Sim.createState(Object.assign({ seed: 61 }, opts));
+  s.spawnTimer = 1e9; // sin proyectiles
+  s.powerTimer = 1e9; // ni mejoras espontáneas
+  parkStars(s);
+  return s;
+}
+
+function give(s, type) {
+  const p = s.players[0];
+  s.powerups.push({ x: p.x, y: p.y, type: type, ttl: 100 });
+  Sim.step(s, [null]);
+  return p;
+}
+
+test('las mejoras aparecen cada pocos segundos, lejos de los jugadores, y caducan', () => {
+  const s = Sim.createState({ seed: 9, numPlayers: 2, lives: 5, hazard: 0 });
+  for (const p of s.players) p.lives = 1e9;
+  let nacidas = 0;
+  let cerca = 0;
+  const seen = new Set();
+  let max = 0;
+  for (let t = 0; t < 60 * 120; t++) {
+    Sim.step(s, [null, null]);
+    for (const u of s.powerups) {
+      if (seen.has(u)) continue;
+      seen.add(u);
+      nacidas++;
+      assert.ok(u.type >= 0 && u.type < Sim.POWERS.length);
+      for (const p of s.players) if (Math.hypot(u.x - p.x, u.y - p.y) < Sim.starPlayerDist(s) - 1e-9) cerca++;
+    }
+    max = Math.max(max, s.powerups.length);
+  }
+  assert.ok(nacidas >= 8 && nacidas <= 22, 'en 2 minutos nacen unas cuantas: ' + nacidas);
+  assert.equal(cerca, 0, 'ninguna nace al lado de un jugador quieto');
+  assert.ok(max <= C.POWER_MAX);
+  // Nadie las coge (los jugadores no se mueven): al final no se acumulan, caducan.
+  assert.ok(s.powerups.length <= C.POWER_MAX);
+});
+
+test('sin mejoras en las reglas, no aparece ninguna', () => {
+  const s = Sim.createState({ seed: 9, powerups: false });
+  s.players[0].lives = 1e9;
+  for (let t = 0; t < 60 * 60; t++) Sim.step(s, [wiggle(s.tick, 0)]);
+  assert.equal(s.power, 0);
+  assert.equal(s.powerups.length, 0);
+});
+
+test('turbo: te mueves más rápido mientras dura', () => {
+  const s = quiet();
+  const p = give(s, POWER.turbo);
+  assert.equal(p.turbo, Sim.POWERS[POWER.turbo].ticks);
+  const x0 = p.x;
+  Sim.step(s, [{ mx: 1, my: 0 }]);
+  assert.ok(Math.abs(p.x - x0 - C.PLAYER_SPEED * C.TURBO_SPEED * C.DT) < 1e-9);
+  p.turbo = 0;
+  const x1 = p.x;
+  Sim.step(s, [{ mx: 1, my: 0 }]);
+  assert.ok(Math.abs(p.x - x1 - C.PLAYER_SPEED * C.DT) < 1e-9);
+});
+
+test('fantasma: los proyectiles te atraviesan, y al acabarse vuelves a ser sólido', () => {
+  const s = quiet();
+  const p = give(s, POWER.ghost);
+  s.hazards.push(hazardAt(p.x, p.y));
+  Sim.step(s, [null]);
+  assert.equal(p.lives, C.LIVES, 'intangible');
+  assert.equal(s.hazards.length, 1, 'el proyectil sigue su camino');
+  p.ghost = 1;
+  Sim.step(s, [null]);
+  assert.equal(p.lives, C.LIVES - 1, 'se acabó el efecto con un proyectil encima');
+});
+
+test('escudo: absorbe un impacto sin perder vida, y solo uno', () => {
+  const s = quiet();
+  const p = give(s, POWER.shield);
+  s.hazards.push(hazardAt(p.x, p.y));
+  Sim.step(s, [null]);
+  assert.equal(p.lives, C.LIVES);
+  assert.equal(p.shield, 0);
+  assert.equal(s.hazards.length, 0, 'el proyectil se consume');
+  assert.ok(s.events.some((e) => e.type === 'shield'));
+  p.inv = 0;
+  s.hazards.push(hazardAt(p.x, p.y));
+  Sim.step(s, [null]);
+  assert.equal(p.lives, C.LIVES - 1, 'el segundo impacto ya quita vida');
+});
+
+test('corazón: una vida más hasta el máximo; con todas, puntos', () => {
+  const s = quiet();
+  const p = s.players[0];
+  p.lives = 1;
+  give(s, POWER.heart);
+  assert.equal(p.lives, 2);
+  p.lives = s.maxLives;
+  const antes = p.score;
+  give(s, POWER.heart);
+  assert.equal(p.lives, s.maxLives);
+  assert.equal(p.score, antes + 1 + C.HEART_POINTS);
+});
+
+test('bomba: destruye los proyectiles cercanos y deja los lejanos', () => {
+  const s = quiet();
+  const p = s.players[0];
+  s.hazards.push(hazardAt(p.x + 100, p.y), hazardAt(p.x - 150, p.y + 100), hazardAt(p.x + C.BOMB_R + 60, p.y));
+  give(s, POWER.bomb);
+  assert.equal(s.hazards.length, 1);
+  assert.ok(Math.abs(s.hazards[0].x - (p.x + C.BOMB_R + 60)) < 1e-9);
+  assert.ok(s.events.some((e) => e.type === 'bomb'));
+});
+
+test('doble: el tiempo y las estrellas puntúan el doble', () => {
+  const s = quiet();
+  const p = give(s, POWER.double);
+  const antes = p.score;
+  Sim.step(s, [null]);
+  assert.equal(p.score, antes + 2);
+  s.stars[0].x = p.x;
+  s.stars[0].y = p.y;
+  const antes2 = p.score;
+  Sim.step(s, [null]);
+  assert.equal(p.score, antes2 + 2 + 2 * C.STAR_POINTS);
+  assert.equal(p.stars, 1, 'cuenta como una estrella');
+});
+
+test('imán: las estrellas se cogen desde lejos', () => {
+  const s = quiet();
+  const p = s.players[0];
+  s.stars[0].x = p.x + 100;
+  s.stars[0].y = p.y;
+  Sim.step(s, [null]);
+  assert.equal(p.stars, 0, 'sin imán, a 100 px no se coge');
+  give(s, POWER.magnet);
+  Sim.step(s, [null]); // el efecto empieza en el tick siguiente a coger la mejora
+  assert.equal(p.stars, 1);
+});
+
+test('el corazón solo sale si a alguien le falta una vida', () => {
+  const tipos = (lives) => {
+    const s = Sim.createState({ seed: 3, lives: 3 });
+    s.spawnTimer = 1e9;
+    s.players[0].lives = lives;
+    const seen = new Set();
+    for (let t = 0; t < 60 * 400; t++) {
+      Sim.step(s, [null]);
+      for (const u of s.powerups) seen.add(u.type);
+    }
+    return seen;
+  };
+  assert.equal(tipos(3).has(POWER.heart), false);
+  assert.equal(tipos(1).has(POWER.heart), true);
+  assert.equal(tipos(3).size, Sim.POWERS.length - 1, 'en 400 s salen todas las demás');
+});
+
+test('si dos tocan una mejora a la vez se la lleva el más cercano, y emite un evento', () => {
+  const s = quiet({ numPlayers: 2 });
+  s.players[0].x = 410;
+  s.players[0].y = 300;
+  s.players[1].x = 395;
+  s.players[1].y = 300;
+  s.powerups.push({ x: 400, y: 300, type: POWER.turbo, ttl: 100 });
+  Sim.step(s, []);
+  assert.equal(s.players[1].turbo > 0, true);
+  assert.equal(s.players[0].turbo, 0);
+  assert.equal(s.powerups.length, 0);
+  assert.deepEqual(s.events.filter((e) => e.type === 'power').map((e) => [e.p, e.k]), [[1, POWER.turbo]]);
 });

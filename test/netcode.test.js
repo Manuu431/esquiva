@@ -46,6 +46,55 @@ test('la instantánea codificada reproduce el estado (con precisión de 0,1 px)'
   assert.equal(v.maxLives, 3);
 });
 
+test('la instantánea lleva mejoras, efectos de los jugadores y tipo de proyectil', () => {
+  const s = Sim.createState({ seed: 8, numPlayers: 2 });
+  s.players[0].turbo = 120;
+  s.players[1].ghost = 33;
+  s.players[1].shield = 400;
+  s.players[0].double = 7;
+  s.players[1].magnet = 9;
+  s.powerups.push({ x: 123.4, y: 456.7, type: 5, ttl: 321 });
+  s.hazards.push({ x: 50, y: 60, vx: 100, vy: -200, r: 9, k: 1, b: 2 }, { x: 70, y: 80, vx: -90, vy: 10, r: 8, k: 2, b: 0 });
+  const wire = JSON.parse(JSON.stringify(Netcode.encodeSnapshot(s, 1, [{ type: 'power', p: 1, k: 6, x: 10, y: 20 }, { type: 'bomb', p: 0, x: 1, y: 2 }])));
+  const v = Netcode.decodeSnapshot(wire);
+  assert.deepEqual([v.players[0].turbo, v.players[0].double, v.players[1].ghost, v.players[1].shield, v.players[1].magnet], [120, 7, 33, 400, 9]);
+  assert.deepEqual(v.powerups, [{ type: 5, x: 123.4, y: 456.7, ttl: 321 }]);
+  assert.deepEqual(v.hazards.map((z) => [z.k, z.b]), [[1, 2], [2, 0]]);
+});
+
+test('con turbo, la predicción del invitado sigue coincidiendo con el anfitrión', () => {
+  const w = createWorld();
+  const bea = w.addClient('Bea', 50);
+  w.host.setRules(3, 1, false); // sin mejoras espontáneas: el turbo se da a mano
+  startRound(w);
+  w.host.state.players.forEach((p) => (p.lives = 1e9));
+  w.host.state.players[1].turbo = 200;
+  w.run(20); // que le llegue la noticia
+  bea.input.mx = 1;
+  const xs = [];
+  w.run(60, () => xs.push(bea.net.view(w.now()).state.players[1].x));
+  bea.input.mx = 0;
+  const paso = xs[40] - xs[39];
+  assert.ok(Math.abs(paso - C.PLAYER_SPEED * C.TURBO_SPEED * C.DT) < 0.3, 'se ve avanzar a velocidad de turbo: ' + paso.toFixed(2));
+  w.run(40);
+  const h = w.host.state.players[1];
+  assert.ok(Math.abs(h.x - bea.net.view(w.now()).state.players[1].x) < 0.5, 'y acaban en el mismo sitio');
+});
+
+test('la regla de mejoras la fija el anfitrión y llega a los invitados', () => {
+  const w = createWorld();
+  const bea = w.addClient('Bea', 30);
+  w.run(5);
+  assert.equal(bea.net.room.power, 1, 'por defecto, con mejoras');
+  w.host.setRules(3, 3, false);
+  w.run(5);
+  assert.equal(bea.net.room.power, 0);
+  assert.equal(bea.net.room.hazard, 3, 'dificultad imposible');
+  w.host.start(4);
+  assert.equal(w.host.state.power, 0);
+  assert.equal(w.host.state.hazard, 3);
+});
+
 test('reglas de la ronda: el anfitrión elige vidas y dificultad, y los invitados las ven', () => {
   const w = createWorld();
   const bea = w.addClient('Bea', 30);
@@ -69,6 +118,8 @@ test('reglas de la ronda: el anfitrión elige vidas y dificultad, y los invitado
   otro.host.setRules(40, -2);
   assert.equal(otro.host.lives, 5);
   assert.equal(otro.host.hazard, 0);
+  otro.host.setRules(3, 99);
+  assert.equal(otro.host.hazard, 3);
 });
 
 test('sala: entrar, ver la lista de jugadores y recibir la configuración', () => {

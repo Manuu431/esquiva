@@ -38,15 +38,35 @@
     AIM_NOISE: 70,
     OUT_MARGIN: 40,
 
+    // Proyectiles especiales (además del normal, que cruza en línea recta y se va):
+    BOUNCER_FROM: 12, // s de ronda a partir de los cuales aparecen los que rebotan
+    BOUNCER_CHANCE: 0.12,
+    BURST_FROM: 20, // ...y las ráfagas de tres en abanico
+    BURST_CHANCE: 0.1,
+    BURST_ANGLE: 0.24, // rad entre los proyectiles de una ráfaga
+
     STAR_COUNT: 3, // estrellas a la vez: con una sola, se la lleva quien la tenga más cerca
     STAR_R: 10,
     STAR_POINTS: 300, // un tick vivo = 1 punto; una estrella = 5 s
     STAR_MARGIN: 50,
     STAR_RESPAWN_DIST: 180, // una estrella no reaparece a menos de esto de quien la cogió
-    STAR_MIN_SEP: 140, // ni a menos de esto de otra estrella
+    STAR_MIN_SEP: 140, // ni a menos de esto de otra estrella o de una mejora
     STAR_PLAYER_DIST: 110, // ni a menos de esto de ningún jugador en pie...
     STAR_PLAYER_DIST_PER: 10, // ...más esto por cada jugador adicional (con 6 en pie: 160)
     STAR_TRIES: 16, // sitios que se prueban; si ninguno cumple todo, se queda el mejor
+
+    // Mejoras: objetos que aparecen de vez en cuando y dan una ventaja a quien los coge.
+    POWER_R: 13,
+    POWER_FIRST: 7, // s hasta la primera
+    POWER_EVERY_MIN: 8, // s entre una y la siguiente (con un jugador; con más, algo menos)
+    POWER_EVERY_MAX: 13,
+    POWER_TTL: 600, // ticks que espera en la arena antes de desaparecer (10 s)
+    POWER_MAX: 2, // como mucho, a la vez en la arena
+    TURBO_SPEED: 1.45, // multiplicador de velocidad con turbo
+    MAGNET_R: 120, // con imán, las estrellas se cogen desde esta distancia
+    BOMB_R: 230, // la bomba destruye los proyectiles a esta distancia
+    SHIELD_INVULN: 30, // ticks de gracia tras perder el escudo
+    HEART_POINTS: 300, // un corazón con todas las vidas da puntos en su lugar
 
     HAZARD_DEFAULT: 1, // dificultad de los proyectiles por defecto (índice de HAZARD_LEVELS)
   });
@@ -56,9 +76,30 @@
     Object.freeze({ speed: 0.8, rate: 0.7 }), // suave
     Object.freeze({ speed: 1, rate: 1 }), // normal
     Object.freeze({ speed: 1.2, rate: 1.4 }), // intensa
+    Object.freeze({ speed: 1.5, rate: 2.4 }), // imposible
   ]);
 
+  // Mejoras, por índice. `ticks` = cuánto dura el efecto (0 = instantáneo); `weight` = cuánto sale.
+  const POWERS = Object.freeze([
+    Object.freeze({ id: 'turbo', ticks: 360, weight: 3 }), // 0: te mueves un 45 % más rápido
+    Object.freeze({ id: 'ghost', ticks: 240, weight: 2 }), // 1: intangible, los proyectiles te atraviesan
+    Object.freeze({ id: 'shield', ticks: 720, weight: 3 }), // 2: absorbe el siguiente impacto
+    Object.freeze({ id: 'heart', ticks: 0, weight: 1.5 }), // 3: una vida más (hasta el máximo)
+    Object.freeze({ id: 'bomb', ticks: 0, weight: 2 }), // 4: destruye los proyectiles cercanos
+    Object.freeze({ id: 'double', ticks: 480, weight: 2 }), // 5: puntos dobles
+    Object.freeze({ id: 'magnet', ticks: 480, weight: 2 }), // 6: coges las estrellas desde lejos
+  ]);
+  const P_TURBO = 0;
+  const P_GHOST = 1;
+  const P_SHIELD = 2;
+  const P_HEART = 3;
+  const P_BOMB = 4;
+  const P_DOUBLE = 5;
+  const P_MAGNET = 6;
+
   const INV_SQRT2 = Math.SQRT1_2;
+  const BURST_COS = Math.cos(C.BURST_ANGLE);
+  const BURST_SIN = Math.sin(C.BURST_ANGLE);
 
   // PRNG mulberry32 con el estado guardado en state.rng (entero de 32 bits).
   function rand(s) {
@@ -89,7 +130,7 @@
     return v < min ? min : v > max ? max : v;
   }
 
-  // opts: { seed, numPlayers, lives (1-5), hazard (0 suave, 1 normal, 2 intensa) }
+  // opts: { seed, numPlayers, lives (1-5), hazard (0 suave ... 3 imposible), powerups (true/false) }
   function createState(opts) {
     const o = opts || {};
     const n = Math.max(1, Math.min(C.MAX_PLAYERS, o.numPlayers | 0 || 1));
@@ -100,10 +141,13 @@
       numPlayers: n,
       maxLives: lives,
       hazard: clampInt(o.hazard, C.HAZARD_DEFAULT, 0, HAZARD_LEVELS.length - 1),
+      power: o.powerups === false || o.powerups === 0 ? 0 : 1, // ¿hay mejoras en esta ronda?
       players: [],
       hazards: [],
       stars: [], // estrellas en la arena (no confundir con player.stars, las que lleva cogidas)
+      powerups: [], // mejoras en la arena: { x, y, type, ttl }
       spawnTimer: C.SPAWN_GRACE,
+      powerTimer: C.POWER_FIRST,
       over: false,
       winner: -1,
       events: [],
@@ -123,6 +167,12 @@
         score: 0,
         stars: 0,
         deathTick: -1,
+        // Efectos de mejoras: ticks que le quedan a cada uno (0 = no lo tiene).
+        turbo: 0,
+        ghost: 0,
+        shield: 0,
+        double: 0,
+        magnet: 0,
       });
     }
     for (let k = 0; k < C.STAR_COUNT; k++) {
@@ -132,23 +182,27 @@
     return s;
   }
 
-  // Distancia mínima a la que debe aparecer una estrella de cualquier jugador en pie. Crece con
-  // el número de jugadores: cuantos más hay, más fácil es que a alguno le caiga al lado.
-  function starPlayerDist(s) {
-    let alive = 0;
-    for (let i = 0; i < s.players.length; i++) if (s.players[i].alive) alive++;
-    return C.STAR_PLAYER_DIST + C.STAR_PLAYER_DIST_PER * Math.max(0, alive - 1);
+  function aliveCount(s) {
+    let n = 0;
+    for (let i = 0; i < s.players.length; i++) if (s.players[i].alive) n++;
+    return n;
   }
 
-  // Coloca la estrella k en un sitio al azar que esté lejos de todos los jugadores (nadie la
-  // recibe regalada), más lejos aún de quien la acaba de coger (para que no encadene) y separada
-  // de las demás (para que haya varias carreras, no una). Se prueban varios sitios; si ninguno
-  // lo cumple todo (arena muy llena), se queda el que más se acerca.
-  function placeStar(s, k, avoidIdx) {
+  // Distancia mínima a la que debe aparecer una estrella o una mejora de cualquier jugador en
+  // pie. Crece con el número de jugadores: cuantos más hay, más fácil es que a alguno le caiga al lado.
+  function starPlayerDist(s) {
+    return C.STAR_PLAYER_DIST + C.STAR_PLAYER_DIST_PER * Math.max(0, aliveCount(s) - 1);
+  }
+
+  const _spot = { x: 0, y: 0 };
+
+  // Busca un sitio al azar que esté lejos de todos los jugadores (nadie lo recibe regalado), más
+  // lejos aún de `avoidIdx` (quien acaba de coger algo, para que no encadene) y separado de las
+  // estrellas y mejoras que ya hay. Se prueban varios sitios; si ninguno lo cumple todo (arena
+  // muy llena), se queda el que más se acerca. `skipStar` = estrella que se está recolocando.
+  function findSpot(s, avoidIdx, skipStar) {
     const m = C.STAR_MARGIN;
     const need = starPlayerDist(s);
-    let bestX = 0;
-    let bestY = 0;
     let bestQ = -1;
     for (let tries = 0; tries < C.STAR_TRIES; tries++) {
       const x = m + rand(s) * (C.W - 2 * m);
@@ -165,21 +219,32 @@
         if (r < q) q = r;
       }
       for (let j = 0; j < s.stars.length; j++) {
-        if (j === k) continue;
+        if (j === skipStar) continue;
         const dx = x - s.stars[j].x;
         const dy = y - s.stars[j].y;
         const r = Math.sqrt(dx * dx + dy * dy) / C.STAR_MIN_SEP;
         if (r < q) q = r;
       }
+      for (let j = 0; j < s.powerups.length; j++) {
+        const dx = x - s.powerups[j].x;
+        const dy = y - s.powerups[j].y;
+        const r = Math.sqrt(dx * dx + dy * dy) / C.STAR_MIN_SEP;
+        if (r < q) q = r;
+      }
       if (q > bestQ) {
         bestQ = q;
-        bestX = x;
-        bestY = y;
+        _spot.x = x;
+        _spot.y = y;
         if (q >= 1) break;
       }
     }
-    s.stars[k].x = bestX;
-    s.stars[k].y = bestY;
+    return _spot;
+  }
+
+  function placeStar(s, k, avoidIdx) {
+    const spot = findSpot(s, avoidIdx, k);
+    s.stars[k].x = spot.x;
+    s.stars[k].y = spot.y;
   }
 
   // Punto del perímetro (justo fuera de la arena) para una fracción u en [0,1).
@@ -205,7 +270,7 @@
 
   function spawnHazard(s, t) {
     const sizeU = rand(s);
-    const r = C.HAZ_R_MIN + sizeU * (C.HAZ_R_MAX - C.HAZ_R_MIN);
+    let r = C.HAZ_R_MIN + sizeU * (C.HAZ_R_MAX - C.HAZ_R_MIN);
     const safe2 = C.SPAWN_SAFE_DIST * C.SPAWN_SAFE_DIST;
     // Hasta 4 intentos de nacer lejos de todos: nada de impactos sin aviso junto al borde.
     for (let tries = 0; tries < 4; tries++) {
@@ -233,17 +298,87 @@
       tx = C.W * (0.15 + 0.7 * rand(s));
       ty = C.H * (0.15 + 0.7 * rand(s));
     }
-    let dx = tx - _pt.x;
-    let dy = ty - _pt.y;
+    const dx = tx - _pt.x;
+    const dy = ty - _pt.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     // Los grandes van algo más lentos que los pequeños.
     const speed = hazardSpeed(t, s.hazard) * (1.15 - 0.3 * sizeU) * (0.9 + 0.2 * rand(s));
-    s.hazards.push({ x: _pt.x, y: _pt.y, vx: (dx / d) * speed, vy: (dy / d) * speed, r: r });
+    const vx = (dx / d) * speed;
+    const vy = (dy / d) * speed;
+
+    // k = tipo (0 normal, 1 rebota, 2 de ráfaga); b = rebotes que le quedan.
+    const roll = rand(s);
+    if (t >= C.BOUNCER_FROM && roll < C.BOUNCER_CHANCE) {
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: 1, b: 1 + (rand(s) < 0.4 ? 1 : 0) });
+    } else if (t >= C.BURST_FROM && roll < C.BOUNCER_CHANCE + C.BURST_CHANCE) {
+      // Ráfaga: tres pequeños en abanico desde el mismo punto.
+      r = C.HAZ_R_MIN + 1;
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: 2, b: 0 });
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx * BURST_COS - vy * BURST_SIN, vy: vx * BURST_SIN + vy * BURST_COS, r: r, k: 2, b: 0 });
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx * BURST_COS + vy * BURST_SIN, vy: -vx * BURST_SIN + vy * BURST_COS, r: r, k: 2, b: 0 });
+    } else {
+      s.hazards.push({ x: _pt.x, y: _pt.y, vx: vx, vy: vy, r: r, k: 0, b: 0 });
+    }
+  }
+
+  // Avanza un proyectil dt segundos. Los que rebotan cambian de sentido al llegar a una pared
+  // mientras les queden rebotes; después salen de la arena como los demás.
+  function moveHazard(z, dt) {
+    z.x += z.vx * dt;
+    z.y += z.vy * dt;
+    if (z.b > 0) {
+      if (z.x < z.r && z.vx < 0) {
+        z.x = 2 * z.r - z.x;
+        z.vx = -z.vx;
+        z.b--;
+      } else if (z.x > C.W - z.r && z.vx > 0) {
+        z.x = 2 * (C.W - z.r) - z.x;
+        z.vx = -z.vx;
+        z.b--;
+      }
+    }
+    if (z.b > 0) {
+      if (z.y < z.r && z.vy < 0) {
+        z.y = 2 * z.r - z.y;
+        z.vy = -z.vy;
+        z.b--;
+      } else if (z.y > C.H - z.r && z.vy > 0) {
+        z.y = 2 * (C.H - z.r) - z.y;
+        z.vy = -z.vy;
+        z.b--;
+      }
+    }
+  }
+
+  const _hz = { x: 0, y: 0, vx: 0, vy: 0, r: 0, b: 0 };
+
+  // Dónde estará un proyectil dentro de `secs` segundos (sin modificarlo). Lo usan el dibujo
+  // (para adelantar los proyectiles en el invitado) y los bots que planifican.
+  function hazardPos(z, secs, out) {
+    if (!(z.b > 0)) {
+      out.x = z.x + z.vx * secs;
+      out.y = z.y + z.vy * secs;
+      return out;
+    }
+    _hz.x = z.x;
+    _hz.y = z.y;
+    _hz.vx = z.vx;
+    _hz.vy = z.vy;
+    _hz.r = z.r;
+    _hz.b = z.b;
+    let left = secs;
+    while (left > 1e-9) {
+      const dt = left > C.DT ? C.DT : left;
+      moveHazard(_hz, dt);
+      left -= dt;
+    }
+    out.x = _hz.x;
+    out.y = _hz.y;
+    return out;
   }
 
   function pickAlive(s) {
-    let n = 0;
-    for (let i = 0; i < s.players.length; i++) if (s.players[i].alive) n++;
+    const n = aliveCount(s);
     if (n === 0) return null;
     let k = Math.floor(rand(s) * n);
     for (let i = 0; i < s.players.length; i++) {
@@ -265,12 +400,62 @@
     p.mx = mx;
     p.my = my;
     let k = C.PLAYER_SPEED * C.DT;
+    if (p.turbo > 0) k *= C.TURBO_SPEED;
     if (mx !== 0 && my !== 0) k *= INV_SQRT2;
     const r = C.PLAYER_R;
-    let x = p.x + mx * k;
-    let y = p.y + my * k;
+    const x = p.x + mx * k;
+    const y = p.y + my * k;
     p.x = x < r ? r : x > C.W - r ? C.W - r : x;
     p.y = y < r ? r : y > C.H - r ? C.H - r : y;
+  }
+
+  // ---------- Mejoras ----------
+
+  function spawnPower(s) {
+    // Qué sale: al azar según su peso; el corazón solo si a alguien le falta una vida.
+    let needHeart = false;
+    for (let i = 0; i < s.players.length; i++) {
+      if (s.players[i].alive && s.players[i].lives < s.maxLives) needHeart = true;
+    }
+    let total = 0;
+    for (let k = 0; k < POWERS.length; k++) total += k === P_HEART && !needHeart ? 0 : POWERS[k].weight;
+    let roll = rand(s) * total;
+    let type = 0;
+    for (let k = 0; k < POWERS.length; k++) {
+      const w = k === P_HEART && !needHeart ? 0 : POWERS[k].weight;
+      if (roll < w) {
+        type = k;
+        break;
+      }
+      roll -= w;
+    }
+    const spot = findSpot(s, -1, -1);
+    s.powerups.push({ x: spot.x, y: spot.y, type: type, ttl: C.POWER_TTL });
+  }
+
+  function applyPower(s, i, type) {
+    const p = s.players[i];
+    if (type === P_TURBO) p.turbo = POWERS[P_TURBO].ticks;
+    else if (type === P_GHOST) p.ghost = POWERS[P_GHOST].ticks;
+    else if (type === P_SHIELD) p.shield = POWERS[P_SHIELD].ticks;
+    else if (type === P_DOUBLE) p.double = POWERS[P_DOUBLE].ticks;
+    else if (type === P_MAGNET) p.magnet = POWERS[P_MAGNET].ticks;
+    else if (type === P_HEART) {
+      if (p.lives < s.maxLives) p.lives++;
+      else p.score += C.HEART_POINTS;
+    } else if (type === P_BOMB) {
+      const hz = s.hazards;
+      const r2 = C.BOMB_R * C.BOMB_R;
+      for (let h = hz.length - 1; h >= 0; h--) {
+        const dx = hz[h].x - p.x;
+        const dy = hz[h].y - p.y;
+        if (dx * dx + dy * dy < r2) {
+          hz[h] = hz[hz.length - 1];
+          hz.pop();
+        }
+      }
+      s.events.push({ type: 'bomb', p: i, x: p.x, y: p.y });
+    }
   }
 
   // inputs[i] = { mx, my } con valores en {-1, 0, 1}; puede faltar (se trata como quieto).
@@ -288,7 +473,12 @@
       const inp = inputs ? inputs[i] : null;
       movePlayer(p, inp ? inp.mx : 0, inp ? inp.my : 0);
       if (p.inv > 0) p.inv--;
-      p.score++;
+      if (p.turbo > 0) p.turbo--;
+      if (p.ghost > 0) p.ghost--;
+      if (p.shield > 0) p.shield--;
+      if (p.magnet > 0) p.magnet--;
+      p.score += p.double > 0 ? 2 : 1;
+      if (p.double > 0) p.double--;
     }
 
     s.spawnTimer -= C.DT;
@@ -301,24 +491,30 @@
     const m = C.OUT_MARGIN;
     for (let h = hz.length - 1; h >= 0; h--) {
       const z = hz[h];
-      z.x += z.vx * C.DT;
-      z.y += z.vy * C.DT;
+      moveHazard(z, C.DT);
       let gone = z.x < -m || z.x > C.W + m || z.y < -m || z.y > C.H + m;
       if (!gone) {
         for (let i = 0; i < np; i++) {
           const p = players[i];
-          if (!p.alive || p.inv > 0) continue;
+          if (!p.alive || p.inv > 0 || p.ghost > 0) continue;
           const dx = z.x - p.x;
           const dy = z.y - p.y;
           const rr = C.PLAYER_R + z.r * C.HIT_FORGIVE;
           if (dx * dx + dy * dy < rr * rr) {
-            p.lives--;
-            p.inv = C.INVULN_TICKS;
-            s.events.push({ type: 'hit', p: i, x: p.x, y: p.y });
-            if (p.lives <= 0) {
-              p.alive = false;
-              p.deathTick = s.tick;
-              s.events.push({ type: 'dead', p: i, x: p.x, y: p.y });
+            if (p.shield > 0) {
+              // El escudo se gasta en lugar de una vida.
+              p.shield = 0;
+              p.inv = C.SHIELD_INVULN;
+              s.events.push({ type: 'shield', p: i, x: p.x, y: p.y });
+            } else {
+              p.lives--;
+              p.inv = C.INVULN_TICKS;
+              s.events.push({ type: 'hit', p: i, x: p.x, y: p.y });
+              if (p.lives <= 0) {
+                p.alive = false;
+                p.deathTick = s.tick;
+                s.events.push({ type: 'dead', p: i, x: p.x, y: p.y });
+              }
             }
             gone = true;
             break;
@@ -332,36 +528,71 @@
     }
 
     // Estrellas: si dos jugadores tocan la misma en el mismo tick, se la lleva el más cercano.
+    // Con imán se cogen desde más lejos.
     const sr = C.PLAYER_R + C.STAR_R;
     for (let k = 0; k < s.stars.length; k++) {
       const st = s.stars[k];
       let best = -1;
-      let bestD = sr * sr;
+      let bestD = Infinity;
       for (let i = 0; i < np; i++) {
         const p = players[i];
         if (!p.alive) continue;
         const dx = p.x - st.x;
         const dy = p.y - st.y;
         const d2 = dx * dx + dy * dy;
-        if (d2 < bestD) {
+        const reach = p.magnet > 0 ? C.MAGNET_R : sr;
+        if (d2 < reach * reach && d2 < bestD) {
           bestD = d2;
           best = i;
         }
       }
       if (best >= 0) {
         const p = players[best];
-        p.score += C.STAR_POINTS;
+        p.score += p.double > 0 ? 2 * C.STAR_POINTS : C.STAR_POINTS;
         p.stars++;
         s.events.push({ type: 'star', p: best, x: st.x, y: st.y });
         placeStar(s, k, best);
       }
     }
 
+    // Mejoras: aparecen de vez en cuando, esperan un rato y se las lleva quien las toque.
+    if (s.power) {
+      const pr = C.PLAYER_R + C.POWER_R;
+      for (let k = s.powerups.length - 1; k >= 0; k--) {
+        const u = s.powerups[k];
+        let best = -1;
+        let bestD = pr * pr;
+        for (let i = 0; i < np; i++) {
+          const p = players[i];
+          if (!p.alive) continue;
+          const dx = p.x - u.x;
+          const dy = p.y - u.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestD) {
+            bestD = d2;
+            best = i;
+          }
+        }
+        if (best >= 0) {
+          s.events.push({ type: 'power', p: best, x: u.x, y: u.y, k: u.type });
+          applyPower(s, best, u.type);
+        }
+        if (best >= 0 || --u.ttl <= 0) {
+          s.powerups[k] = s.powerups[s.powerups.length - 1];
+          s.powerups.pop();
+        }
+      }
+      s.powerTimer -= C.DT;
+      if (s.powerTimer <= 0) {
+        if (s.powerups.length < C.POWER_MAX) spawnPower(s);
+        const wait = C.POWER_EVERY_MIN + rand(s) * (C.POWER_EVERY_MAX - C.POWER_EVERY_MIN);
+        s.powerTimer = wait / (1 + 0.15 * Math.max(0, aliveCount(s) - 1));
+      }
+    }
+
     // Fin de ronda: en solitario al morir; con varios, cuando queda uno en pie (o ninguno).
     // Gana quien más puntos tiene: aguantar puntúa, pero las estrellas también.
-    let alive = 0;
-    for (let i = 0; i < np; i++) if (players[i].alive) alive++;
-    if (alive <= (np === 1 ? 0 : 1)) {
+    if (aliveCount(s) <= (np === 1 ? 0 : 1)) {
       s.over = true;
       s.winner = ranking(s)[0];
       s.events.push({ type: 'over', p: s.winner, x: 0, y: 0 });
@@ -397,10 +628,14 @@
   return {
     C: C,
     HAZARD_LEVELS: HAZARD_LEVELS,
+    POWERS: POWERS,
     starPlayerDist: starPlayerDist,
     createState: createState,
     step: step,
     movePlayer: movePlayer,
+    moveHazard: moveHazard,
+    hazardPos: hazardPos,
+    applyPower: applyPower,
     eliminate: eliminate,
     ranking: ranking,
     hazardSpeed: hazardSpeed,

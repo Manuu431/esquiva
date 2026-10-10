@@ -8,7 +8,17 @@
   const C = Sim.C;
   const STEP_MS = Netcode.STEP_MS;
   const BOT_NAMES = ['Ada', 'Turing', 'Hebb', 'Minsky', 'Hopfield'];
-  const HAZARD_NAMES = ['Suave', 'Normal', 'Intensa'];
+  const HAZARD_NAMES = Stats.HAZARD_NAMES;
+  // Lo que hace cada mejora, en el orden de Sim.POWERS.
+  const POWER_HELP = [
+    ['Turbo', 'te mueves un 45 % más rápido durante 6 s.'],
+    ['Fantasma', 'intangible 4 s: los proyectiles te atraviesan.'],
+    ['Escudo', 'absorbe el siguiente impacto (dura 12 s).'],
+    ['Corazón', 'una vida más; con todas, 300 puntos.'],
+    ['Bomba', 'destruye los proyectiles que tengas cerca.'],
+    ['Doble', 'puntos dobles durante 8 s.'],
+    ['Imán', 'coges las estrellas desde lejos durante 8 s.'],
+  ];
 
   const $ = function (id) {
     return document.getElementById(id);
@@ -44,7 +54,8 @@
   let countdownShown = 0;
   let resultsRound = -1; // ronda cuyos resultados ya se han mostrado
   let busy = false; // conectando
-  let statsOpen = false; // viendo "Mis partidas"
+  let statsOpen = false; // viendo "Mis partidas" o la ayuda
+  let paused = false; // solo en partidas de este ordenador
   const stats = Stats.create(store);
   let demo = null; // partida de exhibición entre bots que se ve detrás del menú
   const humanInput = { mx: 0, my: 0 };
@@ -61,7 +72,7 @@
       .then(function (data) {
         // Valen los genomas completos y los antiguos, sin criterio de elección de estrella.
         const size = data.arch && data.arch.weights;
-        if (size !== NN.N_W && size !== NN.N_NET) throw new Error('weights.json no corresponde a esta red');
+        if (size !== NN.N_W && NN.OLD_SIZES.indexOf(size) < 0) throw new Error('weights.json no corresponde a esta red');
         levels = data.levels || [];
       })
       .catch(function () {
@@ -166,12 +177,13 @@
   }
 
   // "3 vidas · proyectiles normales" es la partida de referencia; lo demás se indica.
-  function rulesText(lives, hazard) {
-    return lives + (lives === 1 ? ' vida' : ' vidas') + ' · proyectiles: ' + HAZARD_NAMES[hazard];
+  function rulesText(lives, hazard, power) {
+    return lives + (lives === 1 ? ' vida' : ' vidas') + ' · proyectiles: ' + HAZARD_NAMES[hazard] + (power ? '' : ' · sin mejoras');
   }
 
-  function defaultRules(lives, hazard) {
-    return lives === C.LIVES && hazard === C.HAZARD_DEFAULT;
+  // Las reglas de referencia, con las que se miden los bots: 3 vidas, proyectiles normales, con mejoras.
+  function defaultRules(lives, hazard, power) {
+    return lives === C.LIVES && hazard === C.HAZARD_DEFAULT && !!power;
   }
 
   function startLocal() {
@@ -179,7 +191,7 @@
     mode = 'local';
     host = newHost(function () {}, null);
     host.setBots(intOf('bots'), intOf('level'));
-    host.setRules(intOf('lives'), intOf('hazard'));
+    host.setRules(intOf('lives'), intOf('hazard'), intOf('powerups') === 1);
     resetClock();
     host.start(randomSeed());
   }
@@ -215,7 +227,7 @@
           h.join(id, performance.now());
         });
         host.setBots(intOf('lobby-bots'), intOf('lobby-level'));
-        host.setRules(intOf('lobby-lives'), intOf('lobby-hazard'));
+        host.setRules(intOf('lobby-lives'), intOf('lobby-hazard'), intOf('lobby-powerups') === 1);
         resetClock();
         setHash(roomCode);
         syncUi();
@@ -284,6 +296,7 @@
     resultsRound = -1;
     countdownShown = 0;
     statsOpen = false;
+    paused = false;
     demo = null;
     Render.clearEffects();
     setHash('');
@@ -353,7 +366,7 @@
     const me = host ? 0 : client && client.room ? client.room.me : -1;
     const bots = host ? host.bots : client && client.room ? client.room.bots : 0;
     const level = host ? host.level : client && client.room ? client.room.level : 0;
-    const rules = host ? rulesText(host.lives, host.hazard) : client && client.room ? rulesText(client.room.lives, client.room.hazard) : '';
+    const rules = host ? rulesText(host.lives, host.hazard, host.powerups) : client && client.room ? rulesText(client.room.lives, client.room.hazard, client.room.power) : '';
 
     $('lobby-code').textContent = roomCode;
     const list = $('lobby-players');
@@ -424,6 +437,7 @@
         lv: bots.length ? levelName(bots[0].level) : '',
         l: host ? s.maxLives : client.room.lives,
         h: host ? s.hazard : client.room.hazard,
+        p: host ? s.power : client.room.power,
         s: me.score,
         t: (me.alive ? s.tick : me.deathTick) / C.TICK_HZ,
         st: me.stars,
@@ -435,7 +449,7 @@
       if (!before.n) note = 'Primera partida en este modo (' + Stats.modeLabel(entry) + ').';
       else if (entry.s > before.best) note = '¡Nuevo récord en este modo! El anterior era ' + before.best + '.';
       else note = 'Tu récord en este modo: ' + before.best + ' · tu media: ' + Math.round(before.avg) + '.';
-      if (solo && defaultRules(entry.l, entry.h) && botsSoloText()) note += ' Media de los bots jugando solos: ' + botsSoloText() + '.';
+      if (solo && defaultRules(entry.l, entry.h, entry.p) && botsSoloText()) note += ' Media de los bots jugando solos: ' + botsSoloText() + '.';
     }
     if (solo) {
       $('over-title').textContent = 'Aguantaste ' + fmtTime(s.tick);
@@ -474,7 +488,7 @@
   }
 
   function show(id) {
-    ['menu', 'lobby', 'gameover', 'stats'].forEach(function (k) {
+    ['menu', 'lobby', 'gameover', 'stats', 'help'].forEach(function (k) {
       $(k).classList.toggle('hidden', k !== id);
     });
     if (id) $('touch-hint').classList.add('hidden');
@@ -484,7 +498,7 @@
   // Ajustes elegidos ahora mismo en el menú, con la forma de una partida del registro.
   function menuMode() {
     const bots = levels.length ? intOf('bots') : 0;
-    return { o: 0, n: bots + 1, b: bots, lv: bots ? levelName(intOf('level')) : '', l: intOf('lives') || C.LIVES, h: intOf('hazard') };
+    return { o: 0, n: bots + 1, b: bots, lv: bots ? levelName(intOf('level')) : '', l: intOf('lives') || C.LIVES, h: intOf('hazard'), p: intOf('powerups') };
   }
 
   function sameMode(list, m) {
@@ -501,14 +515,14 @@
     let text = sum.n
       ? 'Con estos ajustes: récord ' + sum.best + ' · media ' + Math.round(sum.avg) + ' (' + sum.n + (sum.n === 1 ? ' partida' : ' partidas') + ').'
       : 'Aún no has jugado con estos ajustes.';
-    if (m.b === 0 && defaultRules(m.l, m.h) && botsSoloText()) text += ' Bots solos: ' + botsSoloText() + '.';
+    if (m.b === 0 && defaultRules(m.l, m.h, m.p) && botsSoloText()) text += ' Bots solos: ' + botsSoloText() + '.';
     $('record').textContent = text;
   }
 
   // ---------- Mis partidas ----------
 
   function statsFilter() {
-    return { o: $('f-where').value, b: $('f-bots').value, lv: $('f-level').value, l: $('f-lives').value, h: $('f-hazard').value };
+    return { o: $('f-where').value, b: $('f-bots').value, lv: $('f-level').value, l: $('f-lives').value, h: $('f-hazard').value, p: $('f-power').value };
   }
 
   function fmtDate(ms) {
@@ -571,6 +585,7 @@
               $('f-level').value = g.lv;
               $('f-lives').value = String(g.l);
               $('f-hazard').value = String(g.h);
+              $('f-power').value = String(g.p);
               renderStats();
             },
             cells: [
@@ -636,6 +651,29 @@
     $('btn-stats-clear').disabled = !all.length;
   }
 
+  function openHelp() {
+    if (mode || busy) return;
+    statsOpen = true; // comparte con "Mis partidas" el estar encima del menú
+    const list = $('help-powers');
+    if (!list.children.length) {
+      POWER_HELP.forEach(function (h, k) {
+        const li = document.createElement('li');
+        const icon = document.createElement('canvas');
+        icon.width = icon.height = 60;
+        Render.drawPowerIcon(icon, k);
+        li.appendChild(icon);
+        const text = document.createElement('div');
+        const name = document.createElement('b');
+        name.textContent = h[0] + ': ';
+        text.appendChild(name);
+        text.appendChild(span('', h[1]));
+        li.appendChild(text);
+        list.appendChild(li);
+      });
+    }
+    show('help');
+  }
+
   function openStats() {
     if (mode || busy) return;
     statsOpen = true;
@@ -693,6 +731,7 @@
     last = now;
     // En local (y en la exhibición) no hay nadie esperando: si no se mira, se pausa.
     if ((mode === 'local' || mode === null) && document.hidden) return;
+    if (paused) return;
     acc += elapsed;
     if (acc > 250) acc = 250; // tras un parón no se intenta recuperar todo de golpe
     while (acc >= STEP_MS) {
@@ -740,7 +779,7 @@
       plExt: v.plExt,
       countdown: v.countdown,
       dim: mode === null,
-      banner: client && v.state && v.localIdx < 0 && client.phase === 'playing' ? 'Ronda en curso: entras en la siguiente' : '',
+      banner: paused ? 'PAUSA · pulsa P para seguir' : client && v.state && v.localIdx < 0 && client.phase === 'playing' ? 'Ronda en curso: entras en la siguiente' : '',
     });
   }
 
@@ -763,6 +802,7 @@
     $('bots').value = store.get('bots', '3');
     $('lives').value = $('lobby-lives').value = store.get('lives', String(C.LIVES));
     $('hazard').value = $('lobby-hazard').value = store.get('hazard', String(C.HAZARD_DEFAULT));
+    $('powerups').value = $('lobby-powerups').value = store.get('powerups', '1');
     updateRecord();
     setBusy(false);
 
@@ -772,6 +812,7 @@
       store.set('level', $('level').value);
       store.set('lives', $('lives').value);
       store.set('hazard', $('hazard').value);
+      store.set('powerups', $('powerups').value);
       startLocal();
     });
     $('btn-host').addEventListener('click', function () {
@@ -800,16 +841,20 @@
     const rulesChanged = function () {
       store.set('lives', $('lobby-lives').value);
       store.set('hazard', $('lobby-hazard').value);
-      if (mode === 'host') host.setRules(intOf('lobby-lives'), intOf('lobby-hazard'));
+      store.set('powerups', $('lobby-powerups').value);
+      if (mode === 'host') host.setRules(intOf('lobby-lives'), intOf('lobby-hazard'), intOf('lobby-powerups') === 1);
     };
     $('lobby-lives').addEventListener('change', rulesChanged);
     $('lobby-hazard').addEventListener('change', rulesChanged);
+    $('lobby-powerups').addEventListener('change', rulesChanged);
     $('btn-start').addEventListener('click', function () {
       Sfx.unlock();
       if (mode === 'host') host.start(randomSeed());
     });
     $('btn-leave').addEventListener('click', leave);
     $('btn-stats').addEventListener('click', openStats);
+    $('btn-help').addEventListener('click', openHelp);
+    $('btn-help-close').addEventListener('click', closeStats);
     $('btn-stats-close').addEventListener('click', closeStats);
     $('btn-stats-clear').addEventListener('click', function () {
       if (window.confirm('¿Borrar todas tus partidas y récords guardados en este navegador? No se puede deshacer.')) {
@@ -817,10 +862,10 @@
         renderStats();
       }
     });
-    ['f-where', 'f-bots', 'f-level', 'f-lives', 'f-hazard'].forEach(function (id) {
+    ['f-where', 'f-bots', 'f-level', 'f-lives', 'f-hazard', 'f-power'].forEach(function (id) {
       $(id).addEventListener('change', renderStats);
     });
-    ['bots', 'level', 'lives', 'hazard'].forEach(function (id) {
+    ['bots', 'level', 'lives', 'hazard', 'powerups'].forEach(function (id) {
       $(id).addEventListener('change', updateRecord);
     });
     $('btn-exit').addEventListener('click', leave);
@@ -855,6 +900,10 @@
       const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT');
       if (e.code === 'KeyM' && !typing) {
         $('btn-mute').click();
+      } else if (e.code === 'KeyP' && !typing) {
+        // Pausa: solo jugando en este ordenador (en una sala hay más gente esperando).
+        const ph = phase();
+        if (mode === 'local' && (ph === 'playing' || ph === 'countdown')) paused = !paused;
       } else if (e.code === 'Enter') {
         const ph = phase();
         if (ph === 'over' && mode !== 'client') $('btn-again').click();
@@ -908,6 +957,9 @@
     },
     games: function () {
       return stats.all();
+    },
+    paused: function () {
+      return paused;
     },
   };
 

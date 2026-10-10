@@ -7,7 +7,7 @@
   <meta name="description" content="Esquiva: arcade de reflejos para 2-6 amigos, con bots entrenados por neuroevolución.">
   <title>Esquiva</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0d18'/%3E%3Ccircle cx='12' cy='19' r='7' fill='%2338e1ff'/%3E%3Ccircle cx='23' cy='9' r='5' fill='%23ff4d5e'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
   <div id="stage">
@@ -26,8 +26,8 @@
 
       <div class="panel">
         <h2>En este ordenador</h2>
-        <div class="row four">
-          <label class="field small">
+        <div class="row five">
+          <label class="field small narrow">
             <span>Bots</span>
             <select id="bots">
               <option value="0">0</option>
@@ -38,11 +38,11 @@
               <option value="5">5</option>
             </select>
           </label>
-          <label class="field small">
+          <label class="field small wide">
             <span>Nivel</span>
             <select id="level"></select>
           </label>
-          <label class="field small">
+          <label class="field small narrow">
             <span>Vidas</span>
             <select id="lives">
               <option value="1">1</option>
@@ -52,12 +52,20 @@
               <option value="5">5</option>
             </select>
           </label>
-          <label class="field small">
+          <label class="field small wide">
             <span>Proyectiles</span>
             <select id="hazard">
               <option value="0">Suave</option>
               <option value="1" selected>Normal</option>
               <option value="2">Intensa</option>
+              <option value="3">Imposible</option>
+            </select>
+          </label>
+          <label class="field small narrow">
+            <span>Mejoras</span>
+            <select id="powerups">
+              <option value="1" selected>Sí</option>
+              <option value="0">No</option>
             </select>
           </label>
         </div>
@@ -76,7 +84,19 @@
       </div>
 
       <p class="keys">Muévete con <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> o las flechas · <kbd>M</kbd> sonido</p>
-      <p class="note"><span id="record"></span> <button id="btn-stats" class="tiny" type="button">Mis partidas</button></p>
+      <p class="note"><span id="record"></span> <button id="btn-stats" class="tiny" type="button">Mis partidas</button><button id="btn-help" class="tiny" type="button">Cómo se juega</button></p>
+    </section>
+
+    <section id="help" class="overlay wide hidden">
+      <h2>Cómo se juega</h2>
+      <ul class="help-list">
+        <li>Muévete con <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> o las flechas (en móvil, arrastra el dedo). <kbd>P</kbd> pausa, <kbd>M</kbd> sonido, <kbd>Esc</kbd> salir.</li>
+        <li>Cada segundo en pie da 60 puntos y cada <b>estrella</b> 300. La ronda acaba cuando queda uno en pie y <b>gana quien más puntos tiene</b>.</li>
+        <li>Los proyectiles rojos quitan una vida. Los que llevan un <b>anillo blanco rebotan</b> en las paredes; los oscuros vienen en <b>ráfagas de tres</b>.</li>
+      </ul>
+      <h3>Mejoras</h3>
+      <ul id="help-powers" class="help-powers"></ul>
+      <div class="row"><button id="btn-help-close" class="primary" type="button">Entendido</button></div>
     </section>
 
     <section id="stats" class="overlay wide hidden">
@@ -129,6 +149,15 @@
             <option value="0">Suave</option>
             <option value="1">Normal</option>
             <option value="2">Intensa</option>
+            <option value="3">Imposible</option>
+          </select>
+        </label>
+        <label class="field small">
+          <span>Mejoras</span>
+          <select id="f-power">
+            <option value="">Todas</option>
+            <option value="1">Con</option>
+            <option value="0">Sin</option>
           </select>
         </label>
       </div>
@@ -145,8 +174,8 @@
       <h2 id="lobby-title">Sala</h2>
       <p class="code-box"><span id="lobby-code">-----</span><button id="btn-copy" class="tiny">Copiar enlace</button></p>
       <ul id="lobby-players" class="players"></ul>
-      <div class="row four" id="lobby-host-controls">
-        <label class="field small">
+      <div class="row five" id="lobby-host-controls">
+        <label class="field small narrow">
           <span>Bots</span>
           <select id="lobby-bots">
             <option value="0" selected>0</option>
@@ -156,11 +185,11 @@
             <option value="4">4</option>
           </select>
         </label>
-        <label class="field small">
+        <label class="field small wide">
           <span>Nivel</span>
           <select id="lobby-level"></select>
         </label>
-        <label class="field small">
+        <label class="field small narrow">
           <span>Vidas</span>
           <select id="lobby-lives">
               <option value="1">1</option>
@@ -170,12 +199,20 @@
               <option value="5">5</option>
           </select>
         </label>
-        <label class="field small">
+        <label class="field small wide">
           <span>Proyectiles</span>
           <select id="lobby-hazard">
-              <option value="0">Suave</option>
-              <option value="1" selected>Normal</option>
-              <option value="2">Intensa</option>
+            <option value="0">Suave</option>
+            <option value="1" selected>Normal</option>
+            <option value="2">Intensa</option>
+            <option value="3">Imposible</option>
+          </select>
+        </label>
+        <label class="field small narrow">
+          <span>Mejoras</span>
+          <select id="lobby-powerups">
+            <option value="1" selected>Sí</option>
+            <option value="0">No</option>
           </select>
         </label>
       </div>
@@ -204,15 +241,15 @@
     <div id="toast" class="hidden"></div>
   </div>
 
-  <script src="js/sim.js?v=10"></script>
-  <script src="js/nn.js?v=10"></script>
-  <script src="js/netcode.js?v=10"></script>
-  <script src="js/stats.js?v=10"></script>
-  <script src="js/vendor/peerjs.min.js?v=10"></script>
-  <script src="js/net.js?v=10"></script>
-  <script src="js/render.js?v=10"></script>
-  <script src="js/input.js?v=10"></script>
-  <script src="js/audio.js?v=10"></script>
-  <script src="js/main.js?v=10"></script>
+  <script src="js/sim.js?v=11"></script>
+  <script src="js/nn.js?v=11"></script>
+  <script src="js/netcode.js?v=11"></script>
+  <script src="js/stats.js?v=11"></script>
+  <script src="js/vendor/peerjs.min.js?v=11"></script>
+  <script src="js/net.js?v=11"></script>
+  <script src="js/render.js?v=11"></script>
+  <script src="js/input.js?v=11"></script>
+  <script src="js/audio.js?v=11"></script>
+  <script src="js/main.js?v=11"></script>
 </body>
 </html>

@@ -7,7 +7,8 @@
 //   n  jugadores en la ronda (contando bots)       st estrellas
 //   b  bots                                        r  puesto (1 = primero)
 //   lv nivel de los bots ('' si no hay)            w  1 si ganó la ronda
-//   l  vidas       h  dificultad de los proyectiles (0 suave, 1 normal, 2 intensa)
+//   l  vidas       h  dificultad de los proyectiles (0 suave, 1 normal, 2 intensa, 3 imposible)
+//   p  1 si había mejoras en la arena (las partidas anteriores a que existieran cuentan como 0)
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.Stats = factory();
@@ -15,7 +16,7 @@
   'use strict';
 
   const MAX_GAMES = 1000;
-  const HAZARD_NAMES = ['Suave', 'Normal', 'Intensa'];
+  const HAZARD_NAMES = ['Suave', 'Normal', 'Intensa', 'Imposible'];
 
   function clean(g) {
     return {
@@ -26,6 +27,7 @@
       lv: g.b > 0 ? String(g.lv || '') : '',
       l: g.l | 0,
       h: g.h | 0,
+      p: g.p ? 1 : 0,
       s: g.s | 0,
       t: Math.round((Number(g.t) || 0) * 10) / 10,
       st: g.st | 0,
@@ -101,7 +103,7 @@
   // Dos partidas son del mismo "modo" si se jugaron con lo mismo: dónde, contra cuántos humanos y
   // bots, de qué nivel, con cuántas vidas y con qué proyectiles.
   function modeKey(g) {
-    return [g.o, g.o ? g.n - g.b : 1, g.b, g.lv, g.l, g.h].join('|');
+    return [g.o, g.o ? g.n - g.b : 1, g.b, g.lv, g.l, g.h, g.p].join('|');
   }
 
   function modeLabel(g) {
@@ -114,10 +116,10 @@
     } else {
       who = g.b + (g.b === 1 ? ' bot ' : ' bots ') + g.lv;
     }
-    return who + ' · ' + g.l + (g.l === 1 ? ' vida' : ' vidas') + ' · ' + (HAZARD_NAMES[g.h] || '?');
+    return who + ' · ' + g.l + (g.l === 1 ? ' vida' : ' vidas') + ' · ' + (HAZARD_NAMES[g.h] || '?') + (g.p ? '' : ' · sin mejoras');
   }
 
-  // f: { o, b, lv, l, h }; un campo vacío ('' / null / undefined) significa "cualquiera".
+  // f: { o, b, lv, l, h, p }; un campo vacío ('' / null / undefined) significa "cualquiera".
   function matches(g, f) {
     const any = function (v) {
       return v === '' || v === null || v === undefined;
@@ -127,7 +129,8 @@
       (any(f.b) || g.b === Number(f.b)) &&
       (any(f.lv) || g.lv === f.lv) &&
       (any(f.l) || g.l === Number(f.l)) &&
-      (any(f.h) || g.h === Number(f.h))
+      (any(f.h) || g.h === Number(f.h)) &&
+      (any(f.p) || g.p === Number(f.p))
     );
   }
 

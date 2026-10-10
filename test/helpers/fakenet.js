@@ -121,8 +121,18 @@ function seenState(view) {
     tick: s.tick,
     players: s.players,
     stars: s.stars,
+    powerups: s.powerups,
+    maxLives: s.maxLives,
+    // Los proyectiles, donde el invitado los dibuja: adelantados (y con sus rebotes).
     hazards: s.hazards.map(function (z) {
-      return { x: z.x + z.vx * view.hazExt, y: z.y + z.vy * view.hazExt, vx: z.vx, vy: z.vy, r: z.r };
+      const c = { x: z.x, y: z.y, vx: z.vx, vy: z.vy, r: z.r, k: z.k, b: z.b };
+      let left = view.hazExt;
+      while (left > 1e-9) {
+        const dt = Math.min(left, Sim.C.DT);
+        Sim.moveHazard(c, dt);
+        left -= dt;
+      }
+      return c;
     }),
   };
 }

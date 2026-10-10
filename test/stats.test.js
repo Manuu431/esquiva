@@ -15,7 +15,7 @@ function fakeStore(initial) {
 }
 
 function game(over) {
-  return Object.assign({ d: 1000, o: 0, n: 2, b: 1, lv: 'Difícil', l: 3, h: 2, s: 7032, t: 41.5, st: 15, r: 1, w: 1 }, over);
+  return Object.assign({ d: 1000, o: 0, n: 2, b: 1, lv: 'Difícil', l: 3, h: 2, p: 0, s: 7032, t: 41.5, st: 15, r: 1, w: 1 }, over);
 }
 
 test('una partida guardada se recupera tal cual al volver a abrir', () => {
@@ -46,6 +46,8 @@ test('filtros: cada campo vacío significa "cualquiera"', () => {
   assert.equal(count({ h: '2' }), 2, 'proyectiles intensos');
   assert.equal(count({ b: '1', lv: 'Difícil', l: '3', h: '2' }), 1, 'todos a la vez');
   assert.equal(count({ b: '1', h: '0' }), 0);
+  assert.equal(count({ p: '0' }), 4, 'sin mejoras');
+  assert.equal(count({ p: '1' }), 0);
   assert.equal(count({ o: '', b: null, lv: undefined }), 4);
 });
 
@@ -81,11 +83,13 @@ test('récords por modo: un modo es una combinación de ajustes; el más recient
   assert.equal(mio.n, 2);
   assert.equal(mio.best, 7032);
   assert.equal(mio.avg, 5516);
-  assert.equal(Stats.modeLabel(mio.sample), '1 bot Difícil · 3 vidas · Intensa');
-  assert.equal(Stats.modeLabel(modes[4].sample), 'En solitario · 3 vidas · Intensa');
-  assert.equal(Stats.modeLabel(modes[0].sample), 'Sala de 3 + 1 bot Difícil · 3 vidas · Intensa');
-  assert.equal(Stats.modeLabel(game({ o: 1, n: 2, b: 0, lv: '', l: 1, h: 0 })), 'Sala de 2 · 1 vida · Suave');
-  assert.equal(Stats.modeLabel(game({ b: 3, n: 4, lv: 'Experto' })), '3 bots Experto · 3 vidas · Intensa');
+  assert.equal(Stats.modeLabel(mio.sample), '1 bot Difícil · 3 vidas · Intensa · sin mejoras');
+  assert.equal(Stats.modeLabel(modes[4].sample), 'En solitario · 3 vidas · Intensa · sin mejoras');
+  assert.equal(Stats.modeLabel(modes[0].sample), 'Sala de 3 + 1 bot Difícil · 3 vidas · Intensa · sin mejoras');
+  assert.equal(Stats.modeLabel(game({ o: 1, n: 2, b: 0, lv: '', l: 1, h: 0, p: 1 })), 'Sala de 2 · 1 vida · Suave');
+  assert.equal(Stats.modeLabel(game({ b: 3, n: 4, lv: 'Experto', h: 3, p: 1 })), '3 bots Experto · 3 vidas · Imposible');
+  // Con mejoras o sin ellas son modos distintos.
+  assert.notEqual(Stats.modeKey(game({ p: 1 })), Stats.modeKey(game({ p: 0 })));
 });
 
 test('se recupera lo guardado por versiones anteriores (historial en solitario y récords)', () => {

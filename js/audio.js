@@ -42,6 +42,9 @@
       if (e.type === 'hit') blip(mine ? 220 : 160, 60, 0.22, 'sawtooth', mine ? 0.16 : 0.05);
       else if (e.type === 'star') blip(660, 1320, 0.14, 'triangle', mine ? 0.14 : 0.05);
       else if (e.type === 'dead') blip(300, 40, 0.6, 'square', mine ? 0.14 : 0.06);
+      else if (e.type === 'power') blip(440, 990, 0.2, 'triangle', mine ? 0.16 : 0.05);
+      else if (e.type === 'shield') blip(900, 300, 0.18, 'square', mine ? 0.12 : 0.04);
+      else if (e.type === 'bomb') blip(140, 30, 0.5, 'sawtooth', mine ? 0.2 : 0.08);
     }
   }
 

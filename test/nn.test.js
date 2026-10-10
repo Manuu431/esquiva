@@ -14,7 +14,8 @@ function emptyState() {
 const SECT = 3; // valores por sector
 
 test('la red tiene el tamaño documentado', () => {
-  assert.equal(NN.N_IN, 32);
+  assert.equal(NN.N_IN, 35);
+  assert.equal(NN.N_SEL, 2 + Sim.POWERS.length);
   assert.equal(NN.N_NET, (NN.N_IN + 1) * NN.N_HID + (NN.N_HID + 1) * NN.N_OUT);
   assert.equal(NN.N_W, NN.N_NET + NN.N_SEL);
 });
@@ -169,14 +170,92 @@ test('elegir estrella: el bot percibe la dirección de su objetivo, no de la má
   const o = 8 * SECT + 4;
   const ingenuo = NN.sense(s, 0, new Float64Array(NN.N_IN));
   assert.ok(ingenuo[o] > 0.99, 'sin criterio mira a la derecha');
-  const listo = NN.sense(s, 0, new Float64Array(NN.N_IN), 2, 0);
+  const criterio = new Float64Array(NN.N_SEL);
+  criterio[0] = 2;
+  const listo = NN.sense(s, 0, new Float64Array(NN.N_IN), criterio);
   assert.ok(listo[o] < -0.99, 'con criterio mira a la izquierda');
 });
 
-test('un genoma antiguo (sin criterio de estrella) sigue sirviendo', () => {
-  const viejo = new Float64Array(NN.N_NET);
+test('los genomas antiguos siguen sirviendo y se comportan igual que antes', () => {
+  // Un genoma de 424 números (red de 32 entradas + criterio de rivales) con pesos cualesquiera.
+  const viejo = new Float64Array(424);
+  let seed = 11;
+  for (let i = 0; i < viejo.length; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    viejo[i] = (seed / 0x7fffffff) * 2 - 1;
+  }
+  const nuevo = NN.upgrade(viejo);
+  assert.equal(nuevo.length, NN.N_W);
+  assert.equal(nuevo[NN.N_NET], viejo[422], 'conserva el criterio de rivales');
+  assert.equal(nuevo[NN.N_NET + 1], viejo[423]);
+  for (let k = 0; k < Sim.POWERS.length; k++) assert.equal(nuevo[NN.N_NET + NN.SEL_POWER + k], 0, 'no valora ninguna mejora');
+  // La salida de la red no cambia: las entradas nuevas entran con peso 0.
+  const inp = new Float64Array(NN.N_IN).map((_, i) => Math.sin(i * 1.7));
+  const out = NN.forward(nuevo, inp, new Float64Array(NN.N_HID), new Float64Array(NN.N_OUT));
+  let k = 0;
+  const hid = [];
+  for (let j = 0; j < NN.N_HID; j++) {
+    let a = 0;
+    for (let i = 0; i < 32; i++) a += viejo[k++] * inp[i];
+    hid.push(Math.tanh(a + viejo[k++]));
+  }
+  for (let q = 0; q < NN.N_OUT; q++) {
+    let a = 0;
+    for (let j = 0; j < NN.N_HID; j++) a += viejo[k++] * hid[j];
+    assert.ok(Math.abs(Math.tanh(a + viejo[k++]) - out[q]) < 1e-12);
+  }
+  assert.doesNotThrow(() => NN.createBrain(new Float64Array(422)));
   assert.doesNotThrow(() => NN.createBrain(viejo));
-  assert.throws(() => NN.createBrain(new Float64Array(NN.N_NET - 1)));
+  assert.throws(() => NN.createBrain(new Float64Array(400)));
+});
+
+test('mejoras como objetivo: el bot va a por las que valora, si le compensa el desvío', () => {
+  const { s, me } = rivalScene();
+  s.players[1].alive = false;
+  s.maxLives = 3;
+  me.lives = 3;
+  s.powerups = [{ x: 400, y: 0, type: 2, ttl: 600 }]; // un escudo a 300 px; la estrella más cercana, a 200
+  const sel = new Float64Array(NN.N_SEL);
+  assert.equal(NN.pickTarget(s, 0, sel, null), 0, 'si no la valora, ni la mira');
+  sel[NN.SEL_POWER + 2] = 60;
+  assert.equal(NN.pickTarget(s, 0, sel, null), 0, 'vale 60 px y el desvío es de 100: no compensa');
+  sel[NN.SEL_POWER + 2] = 150;
+  const out = { x: 0, y: 0 };
+  assert.equal(NN.pickTarget(s, 0, sel, out), -1, 'vale 150 px: va a por ella');
+  assert.deepEqual(out, { x: 400, y: 0 });
+  // Si caduca antes de que pueda llegar, no hace el viaje.
+  s.powerups[0].ttl = 30;
+  assert.equal(NN.pickTarget(s, 0, sel, null), 0);
+  // Un corazón no interesa con todas las vidas, y sí cuando falta alguna.
+  s.powerups = [{ x: 400, y: 250, type: 3, ttl: 600 }];
+  sel[NN.SEL_POWER + 3] = 500;
+  assert.equal(NN.pickTarget(s, 0, sel, null), 0);
+  me.lives = 2;
+  assert.equal(NN.pickTarget(s, 0, sel, null), -1);
+});
+
+test('intangible: el bot deja de percibir los proyectiles como amenaza', () => {
+  const s = emptyState();
+  const p = s.players[0];
+  s.hazards.push({ x: p.x + 60, y: p.y, vx: -400, vy: 0, r: 10 });
+  assert.ok(NN.sense(s, 0, new Float64Array(NN.N_IN))[1] > 0.5);
+  p.ghost = 200;
+  const fantasma = NN.sense(s, 0, new Float64Array(NN.N_IN));
+  assert.equal(fantasma[0], 0);
+  assert.equal(fantasma[1], 0);
+  assert.equal(fantasma[NN.N_IN - 2], 1, 'y sabe que lo es');
+  p.ghost = 5; // a punto de acabarse: vuelve a verlos
+  assert.ok(NN.sense(s, 0, new Float64Array(NN.N_IN))[1] > 0.5);
+});
+
+test('el bot percibe sus propios efectos: turbo, intangible y escudo', () => {
+  const s = emptyState();
+  const p = s.players[0];
+  const flags = () => Array.from(NN.sense(s, 0, new Float64Array(NN.N_IN)).slice(NN.N_IN - 3));
+  assert.deepEqual(flags(), [0, 0, 0]);
+  p.turbo = 10;
+  p.shield = 10;
+  assert.deepEqual(flags(), [1, 0, 1]);
 });
 
 test('todas las percepciones están acotadas durante una partida real', () => {

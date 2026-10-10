@@ -98,6 +98,27 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
       assert.equal(filas.length, 4);
       assert.ok(filas.filter((f) => f.includes('bot · Experto')).length === 3, 'la tabla marca a los bots y su nivel');
       await page.screenshot(path.join(SHOTS, 'solo-5-fin-bots.png'));
+
+      // Repetición de la ronda que acaba de terminar: se vuelve a ver desde el principio,
+      // acelerada con V, y al acabar (o con Esc) se vuelve a los resultados.
+      const final = await page.eval('JSON.stringify(Esquiva.host().state.players.map(p => [p.score, p.stars, p.deathTick]))');
+      await page.click('#btn-replay');
+      assert.equal(await page.eval('Esquiva.replay() !== null'), true);
+      assert.equal(await page.eval('document.getElementById("gameover").classList.contains("hidden")'), true);
+      for (let k = 0; k < 2; k++) {
+        await page.key('down', 'KeyV');
+        await page.key('up', 'KeyV');
+      }
+      assert.equal(await page.eval('Esquiva.replay().speed'), 4);
+      await sleep(1500);
+      const r1 = await page.eval('Esquiva.replay() ? Esquiva.replay().run.state.tick : -1');
+      assert.ok(r1 > 200, 'la repetición avanza a x4: tick ' + r1);
+      await page.screenshot(path.join(SHOTS, 'solo-5b-repeticion.png'));
+      // Se deja correr hasta el final: debe acabar exactamente como acabó la ronda.
+      await page.eval('Esquiva.replay().speed = 60');
+      await waitFor(() => page.eval('Esquiva.replay() === null'), 60000, 'fin de la repetición');
+      assert.equal(await page.eval('document.getElementById("gameover").classList.contains("hidden")'), false, 'vuelve a los resultados');
+      assert.equal(await page.eval('JSON.stringify(Esquiva.host().state.players.map(p => [p.score, p.stars, p.deathTick]))'), final, 'la ronda real no se ha tocado');
       console.log('   contra bots (' + niveles.join(', ') + '): ' + filas.join(' | '));
       await page.key('down', 'Escape');
       await page.key('up', 'Escape');

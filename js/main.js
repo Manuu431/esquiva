@@ -57,6 +57,7 @@
   let busy = false; // conectando
   let statsOpen = false; // viendo "Mis partidas" o la ayuda
   let paused = false; // solo en partidas de este ordenador
+  let replay = null; // repetición de la última ronda: { run, meta, localIdx, speed }
   const stats = Stats.create(store);
   let demo = null; // partida de exhibición entre bots que se ve detrás del menú
   const humanInput = { mx: 0, my: 0 };
@@ -397,6 +398,7 @@
     countdownShown = 0;
     statsOpen = false;
     paused = false;
+    replay = null;
     demo = null;
     Render.clearEffects();
     setHash('');
@@ -445,6 +447,7 @@
       return;
     }
     const ph = phase();
+    if (replay && ph !== 'over') replay = null; // ha empezado otra ronda: se acabó la repetición
     if (ph === 'menu') return;
     if (ph === 'lobby' || ph === 'connecting') {
       renderLobby();
@@ -562,6 +565,7 @@
     if (mode === 'client') note += ' Esperando al anfitrión…';
     $('over-note').textContent = note;
     $('btn-again').classList.toggle('hidden', mode === 'client');
+    $('btn-replay').classList.toggle('hidden', !(host && host.replay && host.replay.frames.length));
     $('btn-menu').textContent = mode === 'local' ? 'Menú' : mode === 'host' ? 'Volver a la sala' : 'Salir';
     show('gameover');
   }
@@ -764,6 +768,33 @@
     $('btn-stats-clear').disabled = $('btn-stats-export').disabled = !all.length;
   }
 
+  // ---------- Repetición de la última ronda ----------
+
+  function startReplay() {
+    if (!host || !host.replay || host.phase !== 'over') return;
+    replay = { run: Netcode.createReplay(host.replay), meta: host.roster, localIdx: host.localIdx, speed: 1, carry: 0 };
+    Render.clearEffects();
+    show(null);
+  }
+
+  function stopReplay() {
+    if (!replay) return;
+    replay = null;
+    Render.clearEffects();
+    if (host && host.phase === 'over') show('gameover');
+  }
+
+  // Avanza la repetición un tick de reloj (varios de simulación si va acelerada).
+  function stepReplay() {
+    for (let k = 0; k < replay.speed; k++) {
+      if (!replay.run.step()) {
+        stopReplay();
+        return;
+      }
+      Render.onEvents(replay.run.state.events, replay.localIdx);
+    }
+  }
+
   function openHelp() {
     if (mode || busy) return;
     statsOpen = true; // comparte con "Mis partidas" el estar encima del menú
@@ -853,6 +884,7 @@
       if (host) host.tick(humanInput, now - acc);
       else if (client) client.tick(humanInput, now - acc);
       else stepDemo();
+      if (replay) stepReplay();
     }
   }
 
@@ -862,7 +894,13 @@
     lastFrame = now;
 
     let v = localView;
-    if (client) {
+    if (replay) {
+      v.state = replay.run.state;
+      v.meta = replay.meta;
+      v.localIdx = replay.localIdx;
+      v.countdown = 0;
+      v.hazExt = v.plExt = 0;
+    } else if (client) {
       v = client.view(performance.now());
     } else if (host) {
       const playing = host.phase === 'playing';
@@ -892,7 +930,7 @@
       plExt: v.plExt,
       countdown: v.countdown,
       dim: mode === null,
-      banner: paused ? 'PAUSA · pulsa P para seguir' : client && client.silent ? 'Sin noticias del anfitrión: esperando…' : client && v.state && v.localIdx < 0 && client.phase === 'playing' ? 'Ronda en curso: entras en la siguiente' : '',
+      banner: replay ? 'REPETICIÓN x' + replay.speed + ' · V cambia la velocidad · Esc vuelve' : paused ? 'PAUSA · pulsa P para seguir' : client && client.silent ? 'Sin noticias del anfitrión: esperando…' : client && v.state && v.localIdx < 0 && client.phase === 'playing' ? 'Ronda en curso: entras en la siguiente' : '',
     });
   }
 
@@ -994,7 +1032,10 @@
     ['bots', 'level', 'lives', 'hazard', 'powerups'].forEach(function (id) {
       $(id).addEventListener('change', updateRecord);
     });
-    $('btn-exit').addEventListener('click', leave);
+    $('btn-exit').addEventListener('click', function () {
+      if (replay) stopReplay();
+      else leave();
+    });
     const paintMute = function () {
       $('btn-mute').textContent = Sfx.isMuted() ? 'Sonido: no' : 'Sonido: sí';
     };
@@ -1017,6 +1058,7 @@
       Sfx.unlock();
       if (host && host.canStart()) host.start(randomSeed());
     });
+    $('btn-replay').addEventListener('click', startReplay);
     $('btn-menu').addEventListener('click', function () {
       if (mode === 'host') host.toLobby();
       else leave();
@@ -1026,17 +1068,21 @@
       const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT');
       if (e.code === 'KeyM' && !typing) {
         $('btn-mute').click();
+      } else if (e.code === 'KeyV' && !typing && replay) {
+        replay.speed = replay.speed >= 4 ? 1 : replay.speed * 2;
       } else if (e.code === 'KeyP' && !typing) {
         // Pausa: solo jugando en este ordenador (en una sala hay más gente esperando).
         const ph = phase();
         if (mode === 'local' && (ph === 'playing' || ph === 'countdown')) paused = !paused;
       } else if (e.code === 'Enter') {
         const ph = phase();
-        if (ph === 'over' && mode !== 'client') $('btn-again').click();
+        if (replay) stopReplay();
+        else if (ph === 'over' && mode !== 'client') $('btn-again').click();
         else if (ph === 'lobby' && mode === 'host') $('btn-start').click();
         else if (ph === 'menu' && !busy && !statsOpen) $('btn-play').click();
       } else if (e.code === 'Escape') {
-        if (statsOpen) closeStats();
+        if (replay) stopReplay();
+        else if (statsOpen) closeStats();
         else if (mode) leave();
       }
     });
@@ -1089,6 +1135,9 @@
     },
     paused: function () {
       return paused;
+    },
+    replay: function () {
+      return replay;
     },
   };
 

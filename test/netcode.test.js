@@ -402,6 +402,43 @@ test('si un invitado deja de dar señales, el anfitrión lo expulsa', () => {
   assert.equal(w.host.phase, 'over');
 });
 
+test('repetición: con la grabación del anfitrión la ronda se reproduce idéntica', () => {
+  // Una ronda con de todo: anfitrión que se mueve, una invitada con retraso, bots y una desconexión.
+  const God = require('../js/god.js');
+  const w = createWorld({ seed: 4, makeBot: () => God.createBot({ horizon: 20, turn: 8 }) });
+  const bea = w.addClient('Bea', () => 20 + w.rand() * 40);
+  const col = w.addClient('Col', 30);
+  w.host.setBots(1, 0);
+  w.host.setRules(2, 2, true);
+  w.run(10);
+  w.host.start(1234);
+  w.run(Netcode.COUNTDOWN_TICKS + 2);
+  let t = 0;
+  while (w.host.phase === 'playing' && t < 60 * 120) {
+    w.hostInput.mx = (Math.floor(t / 31) % 3) - 1;
+    w.hostInput.my = (Math.floor(t / 47) % 3) - 1;
+    bea.input.mx = (Math.floor(t / 19) % 3) - 1;
+    bea.input.my = (Math.floor(t / 23) % 3) - 1;
+    if (t === 240) w.host.leave(col.id); // Col se va a los 4 s
+    w.run(1);
+    t++;
+  }
+  assert.equal(w.host.phase, 'over');
+  const rec = JSON.parse(JSON.stringify(w.host.replay)); // la grabación es un objeto plano
+  assert.equal(rec.frames.length, w.host.state.tick * 4);
+  assert.deepEqual(rec.elims.length, 2);
+
+  const rep = Netcode.createReplay(rec);
+  let steps = 0;
+  while (rep.step()) steps++;
+  assert.equal(steps, w.host.state.tick);
+  assert.equal(rep.state.over, true);
+  assert.equal(rep.state.winner, w.host.state.winner);
+  assert.deepEqual(rep.state.players, w.host.state.players, 'mismos puntos, vidas, estrellas y posiciones');
+  assert.deepEqual(rep.state.hazards, w.host.state.hazards);
+  assert.deepEqual(rep.state.stars, w.host.state.stars);
+});
+
 test('una partida local es un anfitrión sin invitados', () => {
   const w = createWorld({ makeBot: idleBot });
   w.host.setBots(2, 0);

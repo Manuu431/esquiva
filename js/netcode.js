@@ -153,6 +153,9 @@
       state: null,
       localIdx: 0,
       countdown: 0,
+      // Grabación de la ronda en curso: como la simulación es determinista, basta con las reglas,
+      // la semilla y lo que pulsó cada jugador en cada tick para volver a verla entera.
+      replay: null,
       onChange: null,
       onEvents: null,
     };
@@ -213,6 +216,7 @@
       if (!c.member) return;
       host.members.splice(host.members.indexOf(c.member), 1);
       if (c.slot >= 0 && host.state && (host.phase === 'playing' || host.phase === 'countdown')) {
+        if (host.replay && host.state.players[c.slot].alive) host.replay.elims.push(host.state.tick, c.slot);
         Sim.eliminate(host.state, c.slot);
       }
       changed();
@@ -303,6 +307,7 @@
       host.roster = roster;
       host.round++;
       host.state = Sim.createState({ seed: seed, numPlayers: roster.length, lives: host.lives, hazard: host.hazard, powerups: host.powerups });
+      host.replay = { seed: seed, numPlayers: roster.length, lives: host.lives, hazard: host.hazard, powerups: host.powerups, frames: [], elims: [] };
       host.phase = 'countdown';
       host.countdown = COUNTDOWN_TICKS;
       pendingEvents = [];
@@ -343,6 +348,12 @@
         const s = host.state;
         for (let i = 0; i < controllers.length; i++) inputs[i] = s.players[i].alive ? controllers[i](s, i) : null;
         inputs.length = controllers.length;
+        // Un número por jugador y tick: la dirección pulsada, de 0 a 8 (4 = quieto).
+        const frames = host.replay.frames;
+        for (let i = 0; i < inputs.length; i++) {
+          const inp = inputs[i];
+          frames.push(inp ? (Math.sign(inp.mx) + 1) * 3 + Math.sign(inp.my) + 1 : 4);
+        }
         Sim.step(s, inputs);
         for (let i = 0; i < s.events.length; i++) pendingEvents.push(s.events[i]);
         if (host.onEvents && s.events.length) host.onEvents(s.events);
@@ -368,6 +379,35 @@
     };
 
     return host;
+  }
+
+  // ---------- Repetición ----------
+  // Vuelve a simular una ronda grabada por el anfitrión. step() avanza un tick y devuelve false
+  // cuando se acaba; el estado va quedando en .state.
+  function createReplay(rec) {
+    const s = Sim.createState({ seed: rec.seed, numPlayers: rec.numPlayers, lives: rec.lives, hazard: rec.hazard, powerups: rec.powerups });
+    const n = rec.numPlayers;
+    const inputs = [];
+    for (let i = 0; i < n; i++) inputs.push({ mx: 0, my: 0 });
+    let k = 0;
+    return {
+      state: s,
+      ticks: rec.frames.length / n,
+      step: function () {
+        if (s.over || k >= rec.frames.length) return false;
+        // Jugadores que se desconectaron: salen de la ronda en el mismo tick que entonces.
+        for (let e = 0; e < rec.elims.length; e += 2) {
+          if (rec.elims[e] === s.tick) Sim.eliminate(s, rec.elims[e + 1]);
+        }
+        for (let i = 0; i < n; i++) {
+          const c = rec.frames[k++];
+          inputs[i].mx = Math.floor(c / 3) - 1;
+          inputs[i].my = (c % 3) - 1;
+        }
+        Sim.step(s, inputs);
+        return true;
+      },
+    };
   }
 
   // ---------- Invitado ----------
@@ -629,5 +669,6 @@
     decodeSnapshot: decodeSnapshot,
     createHost: createHost,
     createClient: createClient,
+    createReplay: createReplay,
   };
 });

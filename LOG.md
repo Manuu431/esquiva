@@ -499,14 +499,126 @@ Encargo: hacer todos los puntos que propuse, añadir una dificultad "Imposible" 
 proyectiles, un bot "Modo Dios" lo más perfecto posible, elementos extra (mejoras de velocidad,
 intangible y más) y entrenar a los bots para que los aprovechen. Orden y estado:
 
-- [ ] A. Simulación: dificultad Imposible, proyectiles nuevos (rebotan, ráfagas) y mejoras
+- [x] A. Simulación: dificultad Imposible, proyectiles nuevos (rebotan, ráfagas) y mejoras
       (turbo, fantasma, escudo, corazón, bomba, doble, imán), con red, dibujo, menú y registro.
 - [ ] B. Bots: sensores y genoma para las mejoras; entrenamiento en arena con 2, 4 y 6 jugadores;
       bot "Modo Dios" (planificador); niveles mezclados; nivel adaptativo.
-- [ ] C. Juego: pausa en local, repeticiones, exportar el registro, ayuda con las mejoras.
-- [ ] D. Robustez: retraso de red simulado en las pruebas de navegador; traspaso de anfitrión.
+- [x] C. Juego: pausa en local, repeticiones, exportar el registro, ayuda con las mejoras.
+- [x] D. Robustez: retraso de red simulado en las pruebas de navegador; traspaso de anfitrión.
 - [ ] E. Experimentos largos: repetir entrenamientos con varias semillas; que la red elija estrella;
       más proyectiles por sector para acercarse al techo.
 
 Reglas que mantengo: solo esta carpeta, pruebas antes de cada publicación, y cada iteración queda
 apuntada aquí debajo.
+
+## Iteración 8 — Mejoras, proyectiles nuevos, Imposible, pausa y ayuda (2026-10-10, bucle autónomo)
+
+**Mejoras** (objetos que aparecen cada 8-13 s, lejos de los jugadores, y esperan 10 s):
+
+| mejora   | efecto                                                    |
+|----------|-----------------------------------------------------------|
+| Turbo    | 45 % más de velocidad durante 6 s                         |
+| Fantasma | intangible 4 s: los proyectiles te atraviesan             |
+| Escudo   | absorbe el siguiente impacto (dura 12 s)                  |
+| Corazón  | una vida más; con todas, 300 puntos. Solo sale si a alguien le falta una vida |
+| Bomba    | destruye los proyectiles a menos de 230 px                |
+| Doble    | puntos dobles durante 8 s (tiempo y estrellas)            |
+| Imán     | las estrellas se cogen desde 120 px durante 8 s           |
+
+Regla "Mejoras: sí/no" en el menú y en la sala; el registro de partidas las trata como modos
+distintos. Con las mejoras activadas pasan a ser las reglas de referencia.
+
+**Proyectiles nuevos**, todos rojos (rojo = peligro): los que **rebotan** en las paredes una o
+dos veces (anillo blanco mientras les quedan rebotes) desde el segundo 12, y **ráfagas** de tres
+en abanico (más oscuros) desde el 20.
+
+**Dificultad Imposible**: velocidad x1,5 y ritmo x2,4.
+
+Decisión de diseño que condicionó la elección: nada que cambie la velocidad de los proyectiles ya
+lanzados (congelar, cámara lenta). El invitado dibuja los proyectiles adelantados porque sabe
+exactamente por dónde irán; un rebote se puede predecir igual de bien, una cámara lenta no. Para
+eso `Sim.hazardPos` da la posición futura exacta de cualquier proyectil, rebotes incluidos, y la
+usan el dibujo del invitado y el bot planificador.
+
+Red: protocolo 3 (la instantánea lleva mejoras, los cinco efectos de cada jugador y el tipo de
+proyectil). La predicción del propio jugador tiene en cuenta el turbo (hay test).
+
+Bots: 3 entradas nuevas (llevo turbo / soy intangible / llevo escudo) y, mientras es intangible,
+deja de percibir los proyectiles como amenaza. El "genoma" pasa de 424 a 467 números: 458 de la
+red + 2 del criterio de rivales + 7 con lo que el bot valora cada mejora (en px de desvío que
+está dispuesto a hacer por ella). Los pesos ya publicados se convierten sin cambiar de conducta
+(las entradas nuevas entran con peso 0), y hay un test que lo comprueba.
+
+También: **pausa** con P en partidas locales y pantalla **"Cómo se juega"** con las mejoras.
+
+## Iteración 9 — Modo Dios, niveles Mixto y Adaptativo, exportar y repeticiones
+
+**Modo Dios** (`js/god.js`). No es una red: es un planificador. En cada decisión simula 40 ticks
+de futuro para 81 secuencias (9 movimientos, y a los 12 ticks otros 9), con la posición exacta de
+cada proyectil, y elige la de menor coste (impactos, holgura, paredes y distancia al objetivo).
+Elige objetivo igual que los bots de red: estrellas y mejoras con su valor, descartando lo que un
+rival va a coger antes. Cuesta unos 0,6 ms por decisión.
+
+Un defecto que destaparon los tests: "procrastinaba". Como le valía cualquier ruta que llegase a
+la estrella dentro del horizonte, a menudo elegía quedarse quieto un rato antes de ir (17
+estrellas en el primer minuto, cuando la red Experto coge unas 40). Cambiado el coste a "suma de
+distancias al objetivo hasta que lo coge", que premia llegar antes:
+
+| versión                              | puntos | aguanta | estrellas |
+|--------------------------------------|-------:|--------:|----------:|
+| planificador antiguo (referencia)    |  16484 |   177 s |      19,6 |
+| Modo Dios, primera versión           |  40549 |   214 s |      79,2 |
+| Modo Dios, sin procrastinar          |  73188 |   219 s |     177,3 |
+
+(En solitario, reglas de referencia, 8-12 partidas.) Lo de "perfecto" tiene un límite físico: a
+partir de ~200 s los proyectiles no dejan hueco. En el primer minuto no pierde ninguna vida (test).
+
+**Niveles nuevos** en el menú y en la sala: *Modo Dios*; *Mixto* (un bot de cada nivel, del más
+difícil al más fácil); *Adaptativo* (el nivel que te toca según cómo te ha ido contra bots: sube
+medio escalón por ronda ganada y baja un tercio por perdida).
+
+**Exportar el registro** a CSV y **repetición** de la última ronda (anfitrión y partidas
+locales): como la simulación es determinista, se graba la semilla, las reglas y lo que pulsó cada
+jugador en cada tick, y se vuelve a simular. Se acelera con V. Hay un test que comprueba que la
+repetición acaba exactamente igual que la ronda (con bots, una invitada con retraso y una
+desconexión por medio).
+
+## Iteración 10 — Relevo de anfitrión y un fallo serio que casi publico
+
+**Relevo.** Si se va quien creó la sala, el primer invitado de la lista la reabre y los demás le
+siguen solos. La sala tiene código y "generación"; el identificador del anfitrión se deriva de
+ambos, así que nadie tiene que avisar a nadie de dónde está el nuevo. Quien entra más tarde con
+el código de siempre encuentra la generación viva. La ronda en curso se pierde y las victorias se
+ponen a cero: lo que se conserva es la sala.
+
+Tres fallos encontrados por las pruebas con pestañas reales, en orden:
+1. Al cerrar, el anfitrión trataba el cierre de cada conexión como "se ha ido un jugador" y
+   avisaba a los que quedaban con una lista falsa justo antes de desaparecer: dos invitados creían
+   ser el primero. Corregido (al cerrar la sala no se procesan salidas), y además, si dos intentan
+   tomar el relevo, el segundo sigue al primero en vez de rendirse.
+2. **El serio.** De vez en cuando la invitada tomaba el relevo de una sala cuyo anfitrión seguía
+   vivo. Diagnóstico con un muestreo de ambas pestañas: la del anfitrión se había quedado
+   congelada 15 s (su temporizador corrió 3 veces en ese tiempo). Con la regla de entonces, 6 s de
+   silencio bastaban para darlo por perdido. Antes eso solo acababa la partida; con el relevo
+   partía la sala en dos. Cambiado el criterio: el silencio se avisa en pantalla a los 2,5 s, pero
+   solo se da al anfitrión por perdido si la conexión se cierra de verdad (inmediato cuando cierra
+   la pestaña) o tras 25 s de silencio. Al invitado silencioso se le espera 15 s en vez de 8.
+   Test nuevo: anfitrión congelado 10 s, y al volver la sala sigue con todos dentro.
+3. Mis propias pruebas de navegador tenían esperas cortas que fallaban con el portátil cargado
+   (dos entrenamientos de fondo). Ampliadas.
+
+No sé por qué se congela la pestaña en el Chrome de pruebas (sospecho de la carga del portátil con
+los entrenamientos en marcha); en un navegador normal pasa al cambiar de pestaña o suspender el
+equipo. En cualquier caso el juego tiene que aguantarlo, y ahora lo aguanta.
+
+**Retraso de red simulado en navegador real**: `?lag=75&jitter=19` retrasa lo que envía esa
+pestaña. `node test/browser/online.js --lag 75` comprueba, con PeerJS y WebRTC de verdad, que la
+invitada se mueve al instante y que los proyectiles se adelantan lo que toca (~6 ticks con 150 ms
+de ida y vuelta).
+
+Pruebas a esta altura: 99 tests de Node; en navegador, un jugador (bots, Modo Dios en Imposible a
+60 Hz, pausa, mixto, adaptativo, mejoras, ayuda, registro, repetición), dos pestañas con y sin
+retraso, sala llena de 6 y relevo con tres pestañas. Las de dos pestañas fallan de vez en cuando
+por congelaciones del propio Chrome de pruebas en afirmaciones de tiempo (1 de cada 5 con el
+portátil cargado); el fallo del relevo indebido no ha vuelto a aparecer.
+

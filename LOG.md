@@ -679,3 +679,28 @@ repetir entrenamientos con varias semillas para saber cuánto es azar; que la re
 vez de la regla; más de un proyectil por sector para acercar la red al planificador. Sin tareas
 en segundo plano ahora mismo.
 
+
+## Peticiones nuevas del usuario (2026-10-10, por la noche) y estado
+
+Medición previa, a raíz de su pregunta "¿y si me quedo quieto y solo esquivo?": el mejor campero
+posible (Modo Dios con estrellas y mejoras desactivadas) contra bots Experto, 30 partidas por fila:
+
+| rivales   | gana el campero | es el último en pie | puntos campero / rival | aguanta campero / rival |
+|-----------|----------------:|--------------------:|-----------------------:|------------------------:|
+| 1 Experto |         0 de 30 |            30 de 30 |          3795 / 16796  |              61 / 61 s  |
+| 3 Experto |         0 de 30 |            30 de 30 |          4608 / 15548  |              75 / 62 s  |
+| 5 Experto |         0 de 30 |            30 de 30 |          4574 / 13114  |              75 / 61 s  |
+
+Solo esquivar no gana nunca: una estrella vale 5 s de aguante y la ronda acaba en cuanto queda
+uno, así que el superviviente no puede remontar. El problema real es el contrario (aguantar no
+vale casi nada) y hay un hueco en la regla: con dos en pie, quien va ganando puede dejarse matar
+para cerrar la ronda.
+
+Pendiente de hacer:
+- [ ] Estrellas de distinto valor, tamaño y color (más pequeña = más difícil = más puntos).
+- [ ] Más enemigos con otras mecánicas y más daño, que aparezcan según la dificultad.
+- [ ] Antídoto al juego pasivo / valor de aguantar: propuestas enviadas al usuario (tormenta,
+      perder vida sin puntuar, racha, prórroga del último en pie, lluvia que busca al pasivo);
+      espera su elección. Si no contesta: prórroga + racha, y tormenta como regla opcional.
+- Pregunta sobre replicar agar.io con una skill "replica-skill": esa skill no está disponible en
+  esta sesión; contestado. No se ha empezado nada.

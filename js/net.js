@@ -1,6 +1,10 @@
 // net.js — transporte WebRTC con PeerJS. Solo mueve mensajes; las reglas están en netcode.js.
 // La señalización usa el servidor público gratuito de PeerJS (0.peerjs.com): hace falta para
 // encontrarse, pero una vez conectados los datos van directos de navegador a navegador.
+//
+// Una sala tiene un código y una "generación": empieza en la 1 y sube cada vez que, al caerse el
+// anfitrión, otro jugador toma el relevo. El identificador de PeerJS del anfitrión se deriva de
+// ambos, así que los demás saben dónde buscar al nuevo sin que nadie se lo diga.
 (function () {
   'use strict';
 
@@ -8,6 +12,7 @@
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin 0/O ni 1/I para dictarlo sin líos
   const CODE_LEN = 5;
   const CONNECT_TIMEOUT_MS = 20000;
+  const MAX_GEN = 5; // relevos de anfitrión que se buscan al entrar con un código
 
   function randomCode() {
     const buf = new Uint32Array(CODE_LEN);
@@ -26,6 +31,10 @@
     return code;
   }
 
+  function peerId(code, gen) {
+    return PREFIX + code + (gen > 1 ? '-' + gen : '');
+  }
+
   function explain(err) {
     const type = err && err.type;
     if (type === 'peer-unavailable') return 'No hay ninguna sala con ese código.';
@@ -38,16 +47,20 @@
   }
 
   // Abre una sala. handlers: onJoin(id), onMessage(id, msg), onLeave(id), onError(texto).
-  // Devuelve una promesa con { code, send(id, msg), kick(id), close() }.
-  function host(handlers) {
+  // opts: { code, gen } para tomar el relevo de una sala existente (por defecto, sala nueva).
+  // Devuelve una promesa con { code, gen, send(id, msg), kick(id), close() }.
+  function host(handlers, opts) {
+    const fixed = opts && opts.code ? { code: opts.code, gen: opts.gen || 1 } : null;
     return new Promise(function (resolve, reject) {
       let attempts = 0;
       (function tryOpen() {
         attempts++;
-        const code = randomCode();
-        const peer = new Peer(PREFIX + code, { debug: 1 });
+        const code = fixed ? fixed.code : randomCode();
+        const gen = fixed ? fixed.gen : 1;
+        const peer = new Peer(peerId(code, gen), { debug: 1 });
         const conns = new Map();
         let opened = false;
+        let closing = false;
 
         const timer = setTimeout(function () {
           if (opened) return;
@@ -60,6 +73,7 @@
           clearTimeout(timer);
           resolve({
             code: code,
+            gen: gen,
             send: function (id, msg) {
               const c = conns.get(id);
               if (c && c.open) c.send(msg);
@@ -71,6 +85,7 @@
               if (c) setTimeout(function () { c.close(); }, 300);
             },
             close: function () {
+              closing = true;
               peer.destroy();
             },
           });
@@ -86,7 +101,7 @@
             if (conns.has(id)) handlers.onMessage(id, msg);
           });
           const gone = function () {
-            if (!conns.delete(id)) return;
+            if (closing || !conns.delete(id)) return;
             handlers.onLeave(id);
           };
           conn.on('close', gone);
@@ -103,8 +118,11 @@
           if (!opened) {
             clearTimeout(timer);
             peer.destroy();
-            if (err.type === 'unavailable-id' && attempts < 4) return tryOpen(); // código ya en uso
-            return reject(new Error(explain(err)));
+            // Código ya en uso: con sala nueva se sortea otro; al tomar un relevo no hay alternativa.
+            if (err.type === 'unavailable-id' && !fixed && attempts < 4) return tryOpen();
+            const e = new Error(explain(err));
+            e.taken = err.type === 'unavailable-id';
+            return reject(e);
           }
           if (err.type !== 'peer-unavailable') handlers.onError(explain(err));
         });
@@ -113,13 +131,20 @@
   }
 
   // Entra en una sala. handlers: onMessage(msg), onClose().
-  // Devuelve una promesa con { send(msg), close() }.
-  function join(code, handlers) {
+  // opts.gen: generación concreta a la que conectar (al seguir a un anfitrión de relevo); si no se
+  // indica, se busca la sala en la generación 1 y, si ya no existe, en las siguientes.
+  // Devuelve una promesa con { gen, send(msg), close() }.
+  function join(code, handlers, opts) {
+    const gens = [];
+    if (opts && opts.gen) gens.push(opts.gen);
+    else for (let g = 1; g <= MAX_GEN; g++) gens.push(g);
+
     return new Promise(function (resolve, reject) {
       const peer = new Peer({ debug: 1 });
       let conn = null;
       let settled = false;
       let closed = false;
+      let at = 0;
 
       const fail = function (text) {
         if (settled) return;
@@ -139,16 +164,19 @@
         handlers.onClose();
       };
 
-      peer.on('open', function () {
+      function connect() {
+        const gen = gens[at];
         // reliable:false = canal sin orden garantizado: un paquete lento no frena a los que
         // vienen detrás. netcode.js ya numera lo que necesita orden.
-        conn = peer.connect(PREFIX + code, { reliable: false, serialization: 'json' });
-        conn.on('open', function () {
+        const c = (conn = peer.connect(peerId(code, gen), { reliable: false, serialization: 'json' }));
+        c.on('open', function () {
+          if (settled || c !== conn) return;
           settled = true;
           clearTimeout(timer);
           resolve({
+            gen: gen,
             send: function (msg) {
-              if (conn.open) conn.send(msg);
+              if (c.open) c.send(msg);
             },
             close: function () {
               closed = true;
@@ -156,15 +184,28 @@
             },
           });
         });
-        conn.on('data', function (msg) {
-          handlers.onMessage(msg);
+        c.on('data', function (msg) {
+          if (c === conn) handlers.onMessage(msg);
         });
-        conn.on('close', lost);
-        conn.on('error', lost);
-      });
+        c.on('close', function () {
+          if (c === conn) lost();
+        });
+        c.on('error', function () {
+          if (c === conn) lost();
+        });
+      }
+
+      peer.on('open', connect);
 
       peer.on('error', function (err) {
-        if (!settled) return fail(explain(err));
+        if (!settled) {
+          // Esa generación de la sala no existe: se prueba la siguiente.
+          if (err.type === 'peer-unavailable' && at + 1 < gens.length) {
+            at++;
+            return connect();
+          }
+          return fail(explain(err));
+        }
         // Con la partida en marcha, perder la señalización no importa; perder al otro, sí.
         if (err.type === 'peer-unavailable') lost();
       });

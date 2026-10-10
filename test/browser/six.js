@@ -40,7 +40,7 @@ const NAMES = ['Ana', 'Bea', 'Col', 'Dani', 'Eva', 'Fer'];
     // Aunque se pidan bots, con 6 humanos no cabe ninguno.
     await host.eval('Esquiva.host().setBots(3, 0)');
     await host.click('#btn-start');
-    for (const g of guests) await waitFor(() => g.eval('Esquiva.screen() === "playing"'), 12000, 'ronda en juego');
+    for (const g of guests) await waitFor(() => g.eval('Esquiva.screen() === "playing"'), 45000, 'ronda en juego');
     await host.eval('Esquiva.host().state.players.forEach(p => p.lives = 99)');
     assert.equal(await host.eval('Esquiva.host().state.players.length'), 6);
 

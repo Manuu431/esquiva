@@ -20,8 +20,13 @@
   const SNAP_EVERY = 3; // ticks entre instantáneas (20 por segundo)
   const COUNTDOWN_TICKS = 3 * C.TICK_HZ;
   const HEARTBEAT_TICKS = C.TICK_HZ; // el anfitrión repite el estado de la sala cada segundo
-  const CLIENT_TIMEOUT_MS = 8000; // sin noticias de un invitado: fuera
-  const HOST_TIMEOUT_MS = 6000; // sin noticias del anfitrión: partida perdida
+  // Una pestaña puede quedarse congelada unos segundos (el sistema la aparca, el portátil se
+  // atasca) y volver como si nada. Por eso el silencio primero solo se avisa, y hace falta mucho
+  // para dar a alguien por perdido; cuando la conexión se cierra de verdad, el transporte lo
+  // dice al momento y no hay que esperar a estos plazos.
+  const CLIENT_TIMEOUT_MS = 15000; // sin noticias de un invitado: fuera
+  const HOST_SILENT_MS = 2500; // sin noticias del anfitrión: se avisa al jugador
+  const HOST_TIMEOUT_MS = 25000; // sin noticias del anfitrión: se le da por perdido
   const PING_MS = 500;
   const MAX_EXTRAP_TICKS = 30; // si dejan de llegar instantáneas no se extrapola más de 0,5 s
   const P_FIELDS = 15;
@@ -123,7 +128,8 @@
   }
 
   // ---------- Anfitrión ----------
-  // o.send(clientId, msg), o.kick(clientId) opcional, o.makeBot(level) -> controller(state, idx),
+  // o.send(clientId, msg), o.kick(clientId) opcional, o.makeBot(level, n) -> controller(state, idx),
+  // o.botLevel(level, n) opcional -> nivel concreto del bot n cuando el elegido es mixto o adaptativo,
   // o.name: nombre del anfitrión. Una partida local es un anfitrión sin invitados.
   function createHost(o) {
     const clients = new Map(); // id -> { member, input, heard, slot }
@@ -287,9 +293,11 @@
         }
       });
       for (let b = 0; b < host.bots && roster.length < C.MAX_PLAYERS; b++) {
-        const ctl = o.makeBot ? o.makeBot(host.level, b) : null;
+        // El nivel elegido puede ser uno "virtual" (mixto, adaptativo) que se concreta por bot.
+        const level = o.botLevel ? o.botLevel(host.level, b) : host.level;
+        const ctl = o.makeBot ? o.makeBot(level, b) : null;
         if (!ctl) break;
-        roster.push({ name: (o.botNames && o.botNames[b]) || 'Bot ' + (b + 1), kind: 'bot', level: host.level, wins: botWins[b] || 0, bot: b });
+        roster.push({ name: (o.botNames && o.botNames[b]) || 'Bot ' + (b + 1), kind: 'bot', level: level, wins: botWins[b] || 0, bot: b });
         controllers.push(ctl);
       }
       host.roster = roster;
@@ -387,7 +395,8 @@
       phase: 'connecting', // connecting | lobby | countdown | playing | over
       room: null,
       rtt: 0,
-      lost: false,
+      silent: false, // el anfitrión lleva un rato sin dar señales (puede volver)
+      lost: false, // el anfitrión se da por perdido
       bye: null,
       onChange: null,
       onEvents: null,
@@ -506,6 +515,7 @@
         lastPing = now;
         o.send({ t: 'ping', ts: now });
       }
+      client.silent = lastHeard >= 0 && now - lastHeard > HOST_SILENT_MS;
       if (!client.lost && lastHeard >= 0 && now - lastHeard > HOST_TIMEOUT_MS) {
         client.lost = true;
         if (client.onChange) client.onChange();
@@ -612,6 +622,7 @@
     SNAP_EVERY: SNAP_EVERY,
     COUNTDOWN_TICKS: COUNTDOWN_TICKS,
     HOST_TIMEOUT_MS: HOST_TIMEOUT_MS,
+    HOST_SILENT_MS: HOST_SILENT_MS,
     CLIENT_TIMEOUT_MS: CLIENT_TIMEOUT_MS,
     cleanName: cleanName,
     encodeSnapshot: encodeSnapshot,

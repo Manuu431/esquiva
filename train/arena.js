@@ -39,8 +39,7 @@ function duel(a, b, seeds, delay, rules) {
 
 function withSelector(genomes, selA, selB) {
   return genomes.map(function (g) {
-    const w = new Float64Array(NN.N_W);
-    w.set(g.slice(0, NN.N_NET));
+    const w = NN.upgrade(g);
     w[NN.N_NET] = selA;
     w[NN.N_NET + 1] = selB;
     return w;

@@ -22,8 +22,9 @@ function arg(name, def) {
 
 const CFG = {
   name: String(arg('name', 'arena')),
-  arena: 4, // bots por partida
-  pop: parseInt(arg('pop', 64), 10), // múltiplo de `arena`
+  arena: 4, // bots por partida en la validación
+  tables: [4, 4, 2, 6, 4, 4, 2, 6], // bots por partida en cada ronda de entrenamiento
+  pop: parseInt(arg('pop', 60), 10), // múltiplo de 2, 4 y 6
   gens: parseInt(arg('gens', 200), 10),
   rounds: parseInt(arg('rounds', 8), 10), // partidas que juega cada individuo por generación
   delay: 0,
@@ -35,8 +36,10 @@ const CFG = {
   sigma0: 0.2, // menor que al entrenar desde cero: se parte de redes que ya saben jugar
   sigmaDecay: 0.99,
   sigmaMin: 0.06,
-  selMutRate: 0.3, // el criterio de estrella son solo 2 números: se mutan más a menudo...
-  selSigma: 0.4, // ...y con pasos propios
+  selMutRate: 0.3, // el criterio son pocos números: se mutan más a menudo...
+  selSigma: 0.4, // ...y con pasos propios: este para los dos de rivales...
+  powerSigma: 35, // ...y este (en px) para lo que vale cada mejora
+  powerInit: 300, // valor inicial máximo de una mejora (px de desvío que compensa)
   maxTicks: 60 * 240,
   valGames: 16, // partidas fijas del campeón contra 3 bots de referencia
   valSeeds: 20, // partidas fijas del campeón jugando solo
@@ -84,7 +87,7 @@ function mutate(g, sigma, rng) {
     if (rng() < CFG.mutRate) g[i] += rng.gauss() * sigma;
   }
   for (let i = NN.N_NET; i < NN.N_W; i++) {
-    if (rng() < CFG.selMutRate) g[i] += rng.gauss() * CFG.selSigma;
+    if (rng() < CFG.selMutRate) g[i] += rng.gauss() * (i < NN.N_NET + NN.SEL_POWER ? CFG.selSigma : CFG.powerSigma);
   }
   return g;
 }
@@ -121,26 +124,27 @@ async function main() {
   } catch (e) {
     /* si no se puede bajar la prioridad, se sigue igual */
   }
-  if (CFG.pop % CFG.arena !== 0) throw new Error('La población debe ser múltiplo de ' + CFG.arena);
+  for (const t of CFG.tables) if (CFG.pop % t !== 0) throw new Error('La población debe ser múltiplo de ' + t);
   fs.mkdirSync(DIR, { recursive: true });
   const logFile = path.join(DIR, 'log.csv');
   const champFile = path.join(DIR, 'champions.jsonl');
 
-  // Bots de referencia: los publicados, yendo siempre a la estrella más cercana.
+  // Bots de referencia: los publicados tal cual (no saben nada de mejoras).
   const published = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'weights.json'), 'utf8'));
   const seedsNets = published.levels[published.levels.length - 1].variants;
-  const reference = A.withSelector(seedsNets, 0, 0);
+  const reference = seedsNets.map(function (g) {
+    return NN.upgrade(g);
+  });
 
   const rng = T.makeRng(CFG.seed);
   let sigma = CFG.sigma0;
   let pop = [];
   for (let i = 0; i < CFG.pop; i++) {
-    const g = new Float64Array(NN.N_W);
-    g.set(seedsNets[i % seedsNets.length].slice(0, NN.N_NET));
-    // Una cuarta parte empieza sin criterio (como los publicados); el resto, con criterios variados.
+    // Se parte de los publicados (con su criterio de rivales) y se sortea lo que vale cada
+    // mejora; una cuarta parte empieza sin valorar ninguna, como ellos.
+    const g = NN.upgrade(seedsNets[i % seedsNets.length]);
     if (i >= CFG.pop / 4) {
-      g[NN.N_NET] = rng() * 4;
-      g[NN.N_NET + 1] = rng() * 2;
+      for (let k = NN.N_NET + NN.SEL_POWER; k < NN.N_W; k++) g[k] = rng() * CFG.powerInit;
     }
     // Las primeras copias de cada red se dejan intactas; las demás, ligeramente mutadas.
     if (i >= seedsNets.length * 2) {
@@ -149,7 +153,7 @@ async function main() {
     pop.push(g);
   }
 
-  fs.writeFileSync(logFile, 'gen,mejor,media,mediana,arena_puntos,arena_rivales,arena_gana,solo_puntos,sel_a,sel_b,media_sel_a,media_sel_b,sigma,segundos_calculo\n');
+  fs.writeFileSync(logFile, 'gen,mejor,media,mediana,arena_puntos,arena_rivales,arena_gana,solo_puntos,sel_a,sel_b,media_sel_a,media_sel_b,sigma,segundos_calculo,media_turbo,media_fantasma,media_escudo,media_corazon,media_bomba,media_doble,media_iman\n');
   fs.writeFileSync(champFile, '');
   fs.writeFileSync(path.join(DIR, 'config.json'), JSON.stringify(CFG, null, 2));
   console.log('Entrenamiento en arena "' + CFG.name + '": ' + JSON.stringify(CFG));
@@ -165,8 +169,9 @@ async function main() {
       const seed = 1 + rng.int(800000);
       const rules = { hazard: CFG.hazards[r % CFG.hazards.length] };
       const idx = shuffled(CFG.pop, rng);
-      for (let t = 0; t < CFG.pop; t += CFG.arena) {
-        const table = idx.slice(t, t + CFG.arena);
+      const size = CFG.tables[r % CFG.tables.length];
+      for (let t = 0; t < CFG.pop; t += size) {
+        const table = idx.slice(t, t + size);
         const res = T.playArena(
           table.map(function (i) {
             return T.brainController(pop[i], CFG.delay);
@@ -214,12 +219,19 @@ async function main() {
       meanA += g[NN.N_NET] / pop.length;
       meanB += g[NN.N_NET + 1] / pop.length;
     }
+    // Lo que la población valora de media cada mejora (las que valen 0 o menos, ni las mira).
+    const meanPowers = [];
+    for (let k = NN.N_NET + NN.SEL_POWER; k < NN.N_W; k++) {
+      let sum = 0;
+      for (const g of pop) sum += Math.max(0, g[k]);
+      meanPowers.push(sum / pop.length);
+    }
     const st = stats(fit);
     const secs = (Date.now() - t0) / 1000;
     fs.appendFileSync(
       logFile,
       [gen, st.best.toFixed(0), st.mean.toFixed(0), st.median.toFixed(0), mine.toFixed(0), rivals.toFixed(0), (wins / VAL_ARENA.length).toFixed(2), solo.score.toFixed(0),
-        champion[NN.N_NET].toFixed(2), champion[NN.N_NET + 1].toFixed(2), meanA.toFixed(2), meanB.toFixed(2), sigma.toFixed(3), secs.toFixed(1)].join(',') + '\n'
+        champion[NN.N_NET].toFixed(2), champion[NN.N_NET + 1].toFixed(2), meanA.toFixed(2), meanB.toFixed(2), sigma.toFixed(3), secs.toFixed(1)].concat(meanPowers.map(function (v) { return v.toFixed(0); })).join(',') + '\n'
     );
     fs.appendFileSync(
       champFile,
@@ -230,7 +242,7 @@ async function main() {
         mine.toFixed(0).padStart(35) + rivals.toFixed(0).padStart(9) + ((100 * wins) / VAL_ARENA.length).toFixed(0).padStart(5) + '% |' +
         solo.score.toFixed(0).padStart(6) + ' |' +
         ('(' + champion[NN.N_NET].toFixed(2) + ', ' + champion[NN.N_NET + 1].toFixed(2) + ')').padStart(16) +
-        ('(' + meanA.toFixed(2) + ', ' + meanB.toFixed(2) + ')').padStart(16) + ' |' + (secs.toFixed(1) + ' s').padStart(8)
+        ('(' + meanA.toFixed(2) + ', ' + meanB.toFixed(2) + ')').padStart(16) + ' | mejoras ' + meanPowers.map(function (v) { return v.toFixed(0); }).join(' ') + ' |' + (secs.toFixed(1) + ' s').padStart(8)
     );
 
     const next = [];

@@ -39,9 +39,7 @@ function loadRun(name) {
 
 // Genoma completo: los antiguos (solo red) se completan con criterio 0 = "la más cercana".
 function full(weights) {
-  const w = new Float64Array(NN.N_W);
-  w.set(weights);
-  return w;
+  return NN.upgrade(weights);
 }
 
 function same(a, b) {

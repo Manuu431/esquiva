@@ -47,6 +47,7 @@
   let client = null; // Netcode client (modo client)
   let link = null; // transporte de net.js (modos host y client)
   let roomCode = '';
+  let roomGen = 1; // relevos de anfitrión que lleva la sala (ver net.js)
   let levels = []; // niveles de bot cargados de weights.json
   let acc = 0;
   let last = performance.now();
@@ -73,7 +74,12 @@
         // Valen los genomas completos y los antiguos, sin criterio de elección de estrella.
         const size = data.arch && data.arch.weights;
         if (size !== NN.N_W && NN.OLD_SIZES.indexOf(size) < 0) throw new Error('weights.json no corresponde a esta red');
-        levels = data.levels || [];
+        levels = (data.levels || []).slice();
+        // Niveles que no son una red entrenada: el planificador y dos formas de repartir niveles.
+        if (levels.length) {
+          if (!levels.some(function (lv) { return lv.kind === 'god'; })) levels.push({ name: 'Modo Dios', kind: 'god' });
+          levels.push({ name: 'Mixto', kind: 'mixed' }, { name: 'Adaptativo', kind: 'adaptive' });
+        }
       })
       .catch(function () {
         levels = [];
@@ -85,8 +91,8 @@
   // ---------- Exhibición detrás del menú ----------
 
   function newDemo() {
-    const top = levels.length - 1;
-    if (top < 0) return null;
+    const top = netLevels().pop();
+    if (top === undefined) return null;
     const n = 4;
     const brains = [];
     for (let i = 0; i < n; i++) brains.push(makeBot(top, i));
@@ -118,7 +124,7 @@
 
   function fillLevelSelects() {
     const saved = parseInt(store.get('level', ''), 10);
-    const def = saved >= 0 && saved < levels.length ? saved : Math.max(0, levels.length - 2);
+    const def = saved >= 0 && saved < levels.length ? saved : Math.max(0, netLevels().length - 2);
     ['level', 'lobby-level'].forEach(function (id) {
       const sel = $(id);
       sel.innerHTML = '';
@@ -142,8 +148,44 @@
   // decidirían lo mismo y acabarían moviéndose pegados.
   function makeBot(levelIdx, botIdx) {
     const lv = levels[levelIdx];
-    if (!lv || !lv.variants || !lv.variants.length) return null;
+    if (!lv) return null;
+    if (lv.kind === 'god') return God.createBot(lv.params);
+    if (!lv.variants || !lv.variants.length) return null;
     return NN.createBrain(lv.variants[botIdx % lv.variants.length], { delay: lv.delay || 0 }).act;
+  }
+
+  // Índices de los niveles que son redes entrenadas, de más fácil a más difícil.
+  function netLevels() {
+    const out = [];
+    levels.forEach(function (lv, i) {
+      if (!lv.kind) out.push(i);
+    });
+    return out;
+  }
+
+  // Nivel que te corresponde según cómo te ha ido contra bots en este ordenador: empieza en el
+  // segundo nivel, sube medio escalón por cada ronda ganada y baja un tercio por cada una perdida.
+  function adaptiveLevel() {
+    const nets = netLevels();
+    let r = Math.min(1, nets.length - 1);
+    stats.all().forEach(function (g) {
+      if (g.o || !g.b) return;
+      r += g.w ? 0.5 : -0.34;
+      r = Math.max(0, Math.min(nets.length - 1, r));
+    });
+    return nets[Math.round(r)];
+  }
+
+  // Nivel concreto del bot n cuando el elegido es mixto (uno de cada, empezando por el más
+  // difícil) o adaptativo.
+  function botLevel(levelIdx, botIdx) {
+    const lv = levels[levelIdx];
+    if (lv && lv.kind === 'mixed') {
+      const nets = netLevels();
+      return nets[nets.length - 1 - (botIdx % nets.length)];
+    }
+    if (lv && lv.kind === 'adaptive') return adaptiveLevel();
+    return levelIdx;
   }
 
   function levelName(i) {
@@ -158,8 +200,25 @@
     return name;
   }
 
+  // Red mala simulada, para pruebas: con ?lag=120&jitter=40 en la dirección, cada mensaje que
+  // sale de esta pestaña tarda esos milisegundos de más (con variación, así que se desordenan).
+  const fakeLag = (function () {
+    const q = new URLSearchParams(location.search);
+    const lag = parseFloat(q.get('lag')) || 0;
+    const jitter = parseFloat(q.get('jitter')) || 0;
+    if (!lag && !jitter) return null;
+    return function (fn) {
+      return function () {
+        const args = arguments;
+        setTimeout(function () {
+          fn.apply(null, args);
+        }, Math.max(0, lag + (Math.random() * 2 - 1) * jitter));
+      };
+    };
+  })();
+
   function newHost(send, kick) {
-    const h = Netcode.createHost({ name: playerName(), makeBot: makeBot, botNames: BOT_NAMES, send: send, kick: kick });
+    const h = Netcode.createHost({ name: playerName(), makeBot: makeBot, botLevel: botLevel, botNames: BOT_NAMES, send: send, kick: kick });
     h.onChange = syncUi;
     h.onEvents = function (ev) {
       Render.onEvents(ev, h.localIdx);
@@ -196,10 +255,11 @@
     host.start(randomSeed());
   }
 
-  function createRoom() {
+  // takeover: { code, gen } cuando se toma el relevo de una sala cuyo anfitrión se ha ido.
+  function createRoom(takeover) {
     if (busy) return;
     leave();
-    setBusy(true, 'Creando sala…');
+    setBusy(true, takeover ? 'Tomando el relevo de la sala ' + takeover.code + '…' : 'Creando sala…');
     let h = null;
     const pendingJoins = [];
     Net.host({
@@ -216,13 +276,15 @@
       onError: function (text) {
         toast(text);
       },
-    }).then(
+    }, takeover).then(
       function (l) {
         setBusy(false);
         mode = 'host';
         link = l;
         roomCode = l.code;
-        h = host = newHost(l.send, l.kick);
+        roomGen = l.gen;
+        if (takeover) toast('El anfitrión se ha ido: ahora la sala la llevas tú.', 6000);
+        h = host = newHost(fakeLag ? fakeLag(l.send) : l.send, l.kick);
         pendingJoins.forEach(function (id) {
           h.join(id, performance.now());
         });
@@ -234,9 +296,36 @@
       },
       function (err) {
         setBusy(false);
+        if (takeover && err.taken) {
+          // Otro jugador ha tomado el relevo antes: se le sigue.
+          attemptJoin(takeover.code, { gen: takeover.gen, tries: 6 });
+          return;
+        }
         toast(err.message);
       }
     );
+  }
+
+  // Cuando desaparece el anfitrión: el primer invitado de la lista abre la sala de nuevo y
+  // los demás le siguen. La ronda en curso se pierde, pero la sala continúa.
+  function hostLost(c) {
+    if (client !== c) return;
+    const room = c.room;
+    const code = roomCode;
+    const gen = roomGen;
+    leave();
+    if (!room || room.me < 1) {
+      toast('El anfitrión se ha desconectado: la partida ha terminado.', 5000);
+    } else if (room.me === 1) {
+      createRoom({ code: code, gen: gen + 1 });
+    } else {
+      toast('El anfitrión se ha ido. Buscando al nuevo anfitrión…', 6000);
+      setBusy(true, 'Reconectando con la sala ' + code + '…');
+      // Se le da un momento al nuevo anfitrión para abrir la sala.
+      setTimeout(function () {
+        attemptJoin(code, { gen: gen + 1, tries: 6 });
+      }, 2500);
+    }
   }
 
   function joinRoom() {
@@ -247,26 +336,30 @@
       return;
     }
     leave();
-    setBusy(true, 'Entrando en la sala ' + code + '…');
     $('toast').classList.add('hidden');
+    attemptJoin(code, null);
+  }
+
+  // follow: { gen, tries } al seguir a un anfitrión de relevo (se reintenta unas cuantas veces).
+  function attemptJoin(code, follow) {
+    setBusy(true, (follow ? 'Reconectando con la sala ' : 'Entrando en la sala ') + code + '…');
     let c = null;
     Net.join(code, {
       onMessage: function (msg) {
         if (c) c.receive(msg, performance.now());
       },
       onClose: function () {
-        if (client === c) {
-          leave();
-          toast('El anfitrión se ha desconectado: la partida ha terminado.', 5000);
-        }
+        hostLost(c);
       },
-    }).then(
+    }, follow ? { gen: follow.gen } : null).then(
       function (l) {
         setBusy(false);
         mode = 'client';
         link = l;
         roomCode = code;
-        c = client = Netcode.createClient({ name: playerName(), send: l.send });
+        roomGen = l.gen;
+        if (follow) toast('Reconectado: la sala sigue con otro anfitrión.', 5000);
+        c = client = Netcode.createClient({ name: playerName(), send: fakeLag ? fakeLag(l.send) : l.send });
         client.onChange = syncUi;
         client.onEvents = function (ev) {
           const me = client.view(performance.now()).localIdx;
@@ -279,8 +372,14 @@
         syncUi();
       },
       function (err) {
+        if (follow && follow.tries > 1) {
+          setTimeout(function () {
+            attemptJoin(code, { gen: follow.gen, tries: follow.tries - 1 });
+          }, 2000);
+          return;
+        }
         setBusy(false);
-        toast(err.message, 5000);
+        toast(follow ? 'No se ha podido encontrar al nuevo anfitrión: la sala se ha cerrado.' : err.message, 5000);
       }
     );
   }
@@ -293,6 +392,7 @@
     client = null;
     mode = null;
     roomCode = '';
+    roomGen = 1;
     resultsRound = -1;
     countdownShown = 0;
     statsOpen = false;
@@ -314,7 +414,7 @@
 
   function onlineNote() {
     return Net.available()
-      ? 'Uno crea la sala y pasa el código. Si el anfitrión cierra la pestaña, la partida termina.'
+      ? 'Uno crea la sala y pasa el código. Si el anfitrión se va, otro jugador toma el relevo.'
       : 'El multijugador no está disponible en este navegador.';
   }
 
@@ -333,12 +433,15 @@
   }
 
   function syncUi() {
-    if (client && (client.bye || client.lost)) {
+    if (client && client.bye) {
       const why = client.bye === 'full' ? 'La sala está llena (máximo ' + C.MAX_PLAYERS + ').'
-        : client.bye === 'version' ? 'El anfitrión usa otra versión del juego. Recargad los dos la página.'
-        : 'Se ha perdido la conexión con el anfitrión: la partida ha terminado.';
+        : 'El anfitrión usa otra versión del juego. Recargad los dos la página.';
       leave();
       toast(why, 5000);
+      return;
+    }
+    if (client && client.lost) {
+      hostLost(client);
       return;
     }
     const ph = phase();
@@ -434,7 +537,7 @@
         o: mode === 'local' ? 0 : 1,
         n: meta.length,
         b: bots.length,
-        lv: bots.length ? levelName(bots[0].level) : '',
+        lv: !bots.length ? '' : bots.every(function (m) { return m.level === bots[0].level; }) ? levelName(bots[0].level) : 'Mixto',
         l: host ? s.maxLives : client.room.lives,
         h: host ? s.hazard : client.room.hazard,
         p: host ? s.power : client.room.power,
@@ -498,7 +601,15 @@
   // Ajustes elegidos ahora mismo en el menú, con la forma de una partida del registro.
   function menuMode() {
     const bots = levels.length ? intOf('bots') : 0;
-    return { o: 0, n: bots + 1, b: bots, lv: bots ? levelName(intOf('level')) : '', l: intOf('lives') || C.LIVES, h: intOf('hazard'), p: intOf('powerups') };
+    // Mixto con un solo bot es, en realidad, el nivel más difícil; adaptativo, el que toque.
+    let lv = '';
+    if (bots) {
+      const first = botLevel(intOf('level'), 0);
+      let same = true;
+      for (let b = 1; b < bots; b++) if (botLevel(intOf('level'), b) !== first) same = false;
+      lv = same ? levelName(first) : 'Mixto';
+    }
+    return { o: 0, n: bots + 1, b: bots, lv: lv, l: intOf('lives') || C.LIVES, h: intOf('hazard'), p: intOf('powerups') };
   }
 
   function sameMode(list, m) {
@@ -516,6 +627,8 @@
       ? 'Con estos ajustes: récord ' + sum.best + ' · media ' + Math.round(sum.avg) + ' (' + sum.n + (sum.n === 1 ? ' partida' : ' partidas') + ').'
       : 'Aún no has jugado con estos ajustes.';
     if (m.b === 0 && defaultRules(m.l, m.h, m.p) && botsSoloText()) text += ' Bots solos: ' + botsSoloText() + '.';
+    const chosen = levels[intOf('level')];
+    if (m.b && chosen && chosen.kind === 'adaptive') text += ' Adaptativo: ahora te toca ' + levelName(adaptiveLevel()) + '.';
     $('record').textContent = text;
   }
 
@@ -648,7 +761,7 @@
         all.length ? 'Prueba a quitar algún filtro.' : 'Aquí verás cada partida con sus puntos y sus ajustes.'
       )
     );
-    $('btn-stats-clear').disabled = !all.length;
+    $('btn-stats-clear').disabled = $('btn-stats-export').disabled = !all.length;
   }
 
   function openHelp() {
@@ -779,7 +892,7 @@
       plExt: v.plExt,
       countdown: v.countdown,
       dim: mode === null,
-      banner: paused ? 'PAUSA · pulsa P para seguir' : client && v.state && v.localIdx < 0 && client.phase === 'playing' ? 'Ronda en curso: entras en la siguiente' : '',
+      banner: paused ? 'PAUSA · pulsa P para seguir' : client && client.silent ? 'Sin noticias del anfitrión: esperando…' : client && v.state && v.localIdx < 0 && client.phase === 'playing' ? 'Ronda en curso: entras en la siguiente' : '',
     });
   }
 
@@ -856,6 +969,19 @@
     $('btn-help').addEventListener('click', openHelp);
     $('btn-help-close').addEventListener('click', closeStats);
     $('btn-stats-close').addEventListener('click', closeStats);
+    $('btn-stats-export').addEventListener('click', function () {
+      // Descarga el registro completo como fichero; no sale del navegador.
+      const blob = new Blob(['\ufeff' + Stats.toCsv(stats.all())], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'esquiva-partidas.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () {
+        URL.revokeObjectURL(a.href);
+      }, 1000);
+    });
     $('btn-stats-clear').addEventListener('click', function () {
       if (window.confirm('¿Borrar todas tus partidas y récords guardados en este navegador? No se puede deshacer.')) {
         stats.clear();
@@ -951,6 +1077,9 @@
     },
     code: function () {
       return roomCode;
+    },
+    gen: function () {
+      return roomGen;
     },
     levels: function () {
       return levels;

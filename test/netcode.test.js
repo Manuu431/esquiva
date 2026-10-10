@@ -352,9 +352,42 @@ test('si el anfitrión desaparece, el invitado lo detecta', () => {
   bea.cut = true; // deja de llegar nada del anfitrión
   let changes = 0;
   bea.net.onChange = () => changes++;
-  for (let t = 0; t < 60 * 8; t++) bea.net.tick(bea.input, w.now() + t * STEP);
+  const ticks = (ms) => Math.ceil(ms / STEP);
+  let t = 0;
+  for (; t < ticks(Netcode.HOST_SILENT_MS) + 10; t++) bea.net.tick(bea.input, w.now() + t * STEP);
+  assert.equal(bea.net.silent, true, 'a los pocos segundos de silencio, avisa');
+  assert.equal(bea.net.lost, false, 'pero todavía no lo da por perdido: puede ser una pestaña congelada');
+  for (; t < ticks(Netcode.HOST_TIMEOUT_MS) - 60; t++) bea.net.tick(bea.input, w.now() + t * STEP);
+  assert.equal(bea.net.lost, false);
+  for (; t < ticks(Netcode.HOST_TIMEOUT_MS) + 10; t++) bea.net.tick(bea.input, w.now() + t * STEP);
   assert.equal(bea.net.lost, true);
   assert.equal(changes, 1, 'avisa una sola vez');
+});
+
+test('un anfitrión congelado unos segundos no rompe la sala: al volver, todo sigue', () => {
+  const w = createWorld();
+  const bea = w.addClient('Bea', 30);
+  startRound(w);
+  w.host.state.players.forEach((p) => (p.lives = 1e9));
+  // El anfitrión se queda 10 s sin correr (ni ticks ni mensajes); la invitada sigue en marcha.
+  const frozenTicks = Math.ceil(10000 / STEP);
+  const realTick = w.host.tick;
+  w.host.tick = function () {};
+  bea.cut = true; // lo que envíe mientras tanto no llega a ningún sitio
+  w.run(frozenTicks);
+  assert.equal(bea.net.silent, true, 'la invitada lo nota');
+  assert.equal(bea.net.lost, false, 'pero no lo da por perdido');
+  bea.cut = false;
+  w.host.tick = realTick;
+  w.run(40);
+  assert.equal(bea.net.silent, false, 'vuelven a llegar noticias');
+  assert.equal(bea.net.phase, 'playing');
+  assert.deepEqual(w.host.members.map((m) => m.name), ['Ana', 'Bea'], 'nadie ha sido expulsado');
+  // Y la invitada sigue pudiendo jugar.
+  const x0 = w.host.state.players[1].x;
+  bea.input.mx = 1;
+  w.run(30);
+  assert.ok(w.host.state.players[1].x > x0 + 60);
 });
 
 test('si un invitado deja de dar señales, el anfitrión lo expulsa', () => {

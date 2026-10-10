@@ -178,8 +178,30 @@
       });
   }
 
+  // El registro como CSV (separado por punto y coma, que es lo que abre bien una hoja de cálculo
+  // en español), una partida por línea y la más antigua primero.
+  function toCsv(list) {
+    const two = function (v) {
+      return String(v).padStart(2, '0');
+    };
+    const rows = ['fecha;donde;jugadores;bots;nivel_bots;vidas;proyectiles;mejoras;puntos;segundos;estrellas;puesto;gano'];
+    list.forEach(function (g) {
+      let date = '';
+      if (g.d) {
+        const d = new Date(g.d);
+        date = d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + ' ' + two(d.getHours()) + ':' + two(d.getMinutes());
+      }
+      rows.push([
+        date, g.o ? 'sala' : 'local', g.n, g.b, g.lv, g.l, HAZARD_NAMES[g.h] || '', g.p ? 'si' : 'no',
+        g.s, String(g.t).replace('.', ','), g.st, g.r, g.n > 1 ? (g.w ? 'si' : 'no') : '',
+      ].join(';'));
+    });
+    return rows.join('\r\n') + '\r\n';
+  }
+
   return {
     MAX_GAMES: MAX_GAMES,
+    toCsv: toCsv,
     HAZARD_NAMES: HAZARD_NAMES,
     create: create,
     modeKey: modeKey,

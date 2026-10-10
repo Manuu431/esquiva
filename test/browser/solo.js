@@ -79,7 +79,7 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
     const hayPesosEntrenados = require('node:fs').existsSync(path.resolve(__dirname, '..', '..', 'weights.json'));
     assert.ok(!hayPesosEntrenados || niveles.length > 0, 'hay weights.json pero el juego no ha cargado ningún nivel de bot');
     if (niveles.length) {
-      await page.eval('document.getElementById("bots").value = "3"; document.getElementById("level").value = "' + (niveles.length - 1) + '"');
+      await page.eval('document.getElementById("bots").value = "3"; document.getElementById("level").value = "' + niveles.indexOf('Experto') + '"');
       await page.eval('document.getElementById("lives").value = "3"; document.getElementById("hazard").value = "1"');
       await page.click('#btn-play');
       await waitFor(() => page.eval('Esquiva.screen() === "playing"'), 6000, 'partida contra bots');
@@ -96,18 +96,91 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
       await waitFor(() => page.eval('Esquiva.screen() === "over"'), 240000, 'fin de la ronda contra bots');
       const filas = await page.eval('Array.from(document.querySelectorAll("#over-list li")).map(li => li.textContent)');
       assert.equal(filas.length, 4);
-      assert.ok(filas.filter((f) => f.includes('bot · ' + niveles[niveles.length - 1])).length === 3, 'la tabla marca a los bots y su nivel');
+      assert.ok(filas.filter((f) => f.includes('bot · Experto')).length === 3, 'la tabla marca a los bots y su nivel');
       await page.screenshot(path.join(SHOTS, 'solo-5-fin-bots.png'));
       console.log('   contra bots (' + niveles.join(', ') + '): ' + filas.join(' | '));
       await page.key('down', 'Escape');
       await page.key('up', 'Escape');
     }
 
+    if (niveles.length) {
+      assert.deepEqual(niveles.slice(-3), ['Modo Dios', 'Mixto', 'Adaptativo'], 'niveles que no son redes');
+      const elegir = (bots, nivel, hazard) =>
+        page.eval('document.getElementById("bots").value = "' + bots + '"; document.getElementById("level").value = "' + niveles.indexOf(nivel) +
+          '"; document.getElementById("hazard").value = "' + hazard + '"; document.getElementById("powerups").value = "1"');
+      const salir = async () => {
+        await page.key('down', 'Escape');
+        await page.key('up', 'Escape');
+      };
+
+      // Contra el Modo Dios con proyectiles en Imposible: juega, coge estrellas y no pierde vidas.
+      await elegir(1, 'Modo Dios', 3);
+      await page.click('#btn-play');
+      await waitFor(() => page.eval('Esquiva.screen() === "playing"'), 6000, 'partida contra el Modo Dios');
+      await page.eval('Esquiva.state().players[0].lives = 99');
+      await sleep(7000);
+      const dios = await page.eval('(() => { const s = Esquiva.state(); const b = s.players[1]; return { hazard: s.hazard, power: s.power, stars: b.stars, lives: b.lives, alive: b.alive }; })()');
+      assert.equal(dios.hazard, 3, 'dificultad Imposible');
+      assert.equal(dios.power, 1, 'con mejoras');
+      assert.ok(dios.alive && dios.lives === 3, 'el Modo Dios no ha perdido vidas en 7 s: ' + JSON.stringify(dios));
+      assert.ok(dios.stars >= 3, 'y ya lleva estrellas: ' + dios.stars);
+      const hz = await page.eval('(t1 => new Promise(r => setTimeout(() => r((Esquiva.state().tick - t1) / 2), 2000)))(Esquiva.state().tick)');
+      assert.ok(hz > 55 && hz < 65, 'con el Modo Dios jugando se mantienen ~60 Hz: ' + hz.toFixed(1));
+      await page.screenshot(path.join(SHOTS, 'solo-7-modo-dios-imposible.png'));
+      await salir();
+
+      // Pausa: con P el tiempo se detiene y con P sigue.
+      await elegir(2, 'Normal', 1);
+      await page.click('#btn-play');
+      await waitFor(() => page.eval('Esquiva.screen() === "playing"'), 6000, 'partida para la pausa');
+      await page.key('down', 'KeyP');
+      await page.key('up', 'KeyP');
+      const p0 = await page.eval('Esquiva.state().tick');
+      await sleep(600);
+      assert.equal(await page.eval('Esquiva.state().tick'), p0, 'en pausa no avanza');
+      assert.equal(await page.eval('Esquiva.paused()'), true);
+      await page.key('down', 'KeyP');
+      await page.key('up', 'KeyP');
+      await sleep(400);
+      assert.ok((await page.eval('Esquiva.state().tick')) > p0 + 10, 'al quitar la pausa sigue');
+      await salir();
+
+      // Mixto: cada bot de un nivel distinto, del más difícil al más fácil.
+      await elegir(4, 'Mixto', 1);
+      await page.click('#btn-play');
+      await waitFor(() => page.eval('Esquiva.screen() !== "menu"'), 6000, 'partida mixta');
+      const mixto = await page.eval('Esquiva.host().roster.filter(r => r.kind === "bot").map(r => Esquiva.levels()[r.level].name)');
+      assert.deepEqual(mixto, ['Experto', 'Difícil', 'Normal', 'Fácil']);
+      await salir();
+
+      // Adaptativo: se concreta en un nivel de red según el historial.
+      await elegir(2, 'Adaptativo', 1);
+      await page.click('#btn-play');
+      await waitFor(() => page.eval('Esquiva.screen() !== "menu"'), 6000, 'partida adaptativa');
+      const adapt = await page.eval('Esquiva.host().roster.filter(r => r.kind === "bot").map(r => Esquiva.levels()[r.level].name)');
+      assert.equal(adapt.length, 2);
+      assert.ok(adapt[0] === adapt[1] && ['Fácil', 'Normal', 'Difícil', 'Experto'].includes(adapt[0]), 'adaptativo: ' + adapt);
+      await salir();
+
+      // Las mejoras aparecen y los jugadores las cogen (se fuerza una para no esperar).
+      await elegir(0, 'Normal', 0);
+      await page.click('#btn-play');
+      await waitFor(() => page.eval('Esquiva.screen() === "playing"'), 6000, 'partida para las mejoras');
+      await page.eval('(() => { const s = Esquiva.state(); const p = s.players[0]; s.powerups.push({ x: p.x, y: p.y, type: 0, ttl: 300 }); })()');
+      await sleep(300);
+      assert.ok((await page.eval('Esquiva.state().players[0].turbo')) > 0, 'el jugador ha cogido el turbo');
+      await salir();
+      // Ayuda.
+      await page.click('#btn-help');
+      assert.equal(await page.eval('document.querySelectorAll("#help-powers li").length'), 7, 'la ayuda explica las 7 mejoras');
+      await page.click('#btn-help-close');
+    }
+
     // Registro de partidas: las dos jugadas están guardadas con sus ajustes.
     const games = await page.eval('Esquiva.games()');
     assert.ok(games.length >= 1, 'hay partidas en el registro');
     const sola = games[0];
-    assert.deepEqual({ o: sola.o, n: sola.n, b: sola.b, l: sola.l, h: sola.h }, { o: 0, n: 1, b: 0, l: 5, h: 0 }, 'la partida en solitario con 5 vidas y proyectiles suaves');
+    assert.deepEqual({ o: sola.o, n: sola.n, b: sola.b, l: sola.l, h: sola.h, p: sola.p }, { o: 0, n: 1, b: 0, l: 5, h: 0, p: 1 }, 'la partida en solitario con 5 vidas, proyectiles suaves y mejoras');
     assert.ok(sola.s > 0 && sola.t > 0 && sola.d > 0);
     await page.click('#btn-stats');
     assert.equal(await page.eval('document.getElementById("stats").classList.contains("hidden")'), false);

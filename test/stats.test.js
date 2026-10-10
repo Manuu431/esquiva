@@ -119,6 +119,15 @@ test('el registro tiene tope y borrar lo vacía', () => {
   assert.equal(Stats.create(store).all().length, 0);
 });
 
+test('exportar a CSV: una línea por partida, con cabecera', () => {
+  const csv = Stats.toCsv([game({ d: new Date(2026, 9, 10, 17, 5).getTime() }), game({ d: 0, n: 1, b: 0, lv: '', p: 1, t: 12.5, w: 0 })]);
+  const lines = csv.trim().split('\r\n');
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0], 'fecha;donde;jugadores;bots;nivel_bots;vidas;proyectiles;mejoras;puntos;segundos;estrellas;puesto;gano');
+  assert.equal(lines[1], '2026-10-10 17:05;local;2;1;Difícil;3;Intensa;no;7032;41,5;15;1;si');
+  assert.equal(lines[2], ';local;1;0;;3;Intensa;si;7032;12,5;15;1;');
+});
+
 test('datos estropeados en el almacenamiento no rompen nada', () => {
   assert.deepEqual(Stats.create(fakeStore({ games: '{esto no es json' })).all(), []);
   assert.deepEqual(Stats.create(fakeStore({ games: '"hola"' })).all(), []);

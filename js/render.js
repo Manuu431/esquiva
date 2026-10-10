@@ -145,11 +145,14 @@
       const plExt = o.plExt || 0;
 
       // Estrella
-      const pulse = 1 + 0.12 * Math.sin(time * 5);
-      ctx.drawImage(glow('#ffd23f'), view.star.x - 30, view.star.y - 30, 60, 60);
-      starPath(view.star.x, view.star.y, C.STAR_R * 1.25 * pulse, time * 1.4);
       ctx.fillStyle = '#ffd23f';
-      ctx.fill();
+      for (let i = 0; i < view.stars.length; i++) {
+        const st = view.stars[i];
+        const pulse = 1 + 0.12 * Math.sin(time * 5 + i * 2);
+        ctx.drawImage(glow('#ffd23f'), st.x - 30, st.y - 30, 60, 60);
+        starPath(st.x, st.y, C.STAR_R * 1.25 * pulse, time * 1.4 + i);
+        ctx.fill();
+      }
 
       // Proyectiles: estela + cuerpo
       const hz = view.hazards;
@@ -305,19 +308,21 @@
       ctx.arc(x0 + 10, y, 4.5, 0, TAU);
       ctx.fill();
       // Vidas
-      for (let l = 0; l < C.LIVES; l++) {
+      const maxLives = view.maxLives || C.LIVES;
+      for (let l = 0; l < maxLives; l++) {
         ctx.fillStyle = l < p.lives ? '#ff4d5e' : 'rgba(255,255,255,0.14)';
         ctx.fillRect(x0 + 20 + l * 7, y - 4, 5, 8);
       }
+      const nameX = 24 + maxLives * 7;
       ctx.font = '700 12px ' + FONT;
       ctx.textAlign = 'right';
       ctx.fillStyle = '#e8ecff';
       ctx.fillText(String(p.score), x0 + cellW - 9, y + 0.5);
-      if (cellW > 120 && meta[i]) {
+      if (cellW - nameX > 80 && meta[i]) {
         ctx.font = '500 11px ' + FONT;
         ctx.textAlign = 'left';
         ctx.fillStyle = 'rgba(232, 236, 255, 0.7)';
-        ctx.fillText(clip(meta[i].name, cellW - 96), x0 + 44, y + 0.5);
+        ctx.fillText(clip(meta[i].name, cellW - nameX - 52), x0 + nameX, y + 0.5);
       }
     }
     ctx.globalAlpha = 1;

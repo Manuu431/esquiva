@@ -34,8 +34,10 @@ function makeRng(seed) {
 }
 
 // Juega una partida en solitario sin pantalla. controller(state, idx) -> { mx, my }.
-function playEpisode(controller, seed, maxTicks) {
-  const s = Sim.createState({ seed: seed, numPlayers: 1 });
+// rules: { lives, hazard } opcional (por defecto, 3 vidas y proyectiles normales).
+function playEpisode(controller, seed, maxTicks, rules) {
+  const r = rules || {};
+  const s = Sim.createState({ seed: seed, numPlayers: 1, lives: r.lives, hazard: r.hazard });
   const inputs = [null];
   while (!s.over && s.tick < maxTicks) {
     inputs[0] = controller(s, 0);
@@ -47,13 +49,14 @@ function playEpisode(controller, seed, maxTicks) {
 
 // Media de varias partidas, una por semilla. makeController() crea un jugador nuevo por partida
 // (los que tienen memoria, como los de tiempo de reacción, empiezan limpios).
-function evaluate(makeController, seeds, maxTicks) {
+// rulesFor(i): reglas de la partida i (opcional).
+function evaluate(makeController, seeds, maxTicks, rulesFor) {
   let score = 0;
   let ticks = 0;
   let stars = 0;
   let survived = 0;
   for (let i = 0; i < seeds.length; i++) {
-    const r = playEpisode(makeController(), seeds[i], maxTicks);
+    const r = playEpisode(makeController(), seeds[i], maxTicks, rulesFor ? rulesFor(i) : null);
     score += r.score;
     ticks += r.ticks;
     stars += r.stars;
@@ -152,9 +155,14 @@ function decide(s, idx, horizon, out) {
     // Las paredes quitan salidas; la estrella atrae.
     const wall = Math.min(x, C.W - x, y, C.H - y);
     if (wall < 60) cost += (60 - wall) * 0.15;
-    const sx = s.star.x - x;
-    const sy = s.star.y - y;
-    cost += Math.sqrt(sx * sx + sy * sy) * 0.02;
+    let near = Infinity;
+    for (let k = 0; k < s.stars.length; k++) {
+      const sx = s.stars[k].x - x;
+      const sy = s.stars[k].y - y;
+      const sd = Math.sqrt(sx * sx + sy * sy);
+      if (sd < near) near = sd;
+    }
+    cost += near * 0.02;
     if (cost < bestCost) {
       bestCost = cost;
       best = m;

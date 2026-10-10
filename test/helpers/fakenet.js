@@ -120,7 +120,7 @@ function seenState(view) {
   return {
     tick: s.tick,
     players: s.players,
-    star: s.star,
+    stars: s.stars,
     hazards: s.hazards.map(function (z) {
       return { x: z.x + z.vx * view.hazExt, y: z.y + z.vy * view.hazExt, vx: z.vx, vy: z.vy, r: z.r };
     }),

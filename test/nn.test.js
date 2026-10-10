@@ -102,16 +102,25 @@ test('paredes, estrella e invulnerabilidad', () => {
   const p = s.players[0];
   p.x = C.PLAYER_R;
   p.y = C.H / 2;
-  s.star.x = p.x + 300;
-  s.star.y = p.y;
+  s.stars = [{ x: p.x + 300, y: p.y }, { x: p.x + 500, y: p.y + 200 }, { x: p.x + 301, y: p.y + 250 }];
   p.inv = 10;
   const out = NN.sense(s, 0, new Float64Array(NN.N_IN));
   const o = 8 * SECT;
   assert.equal(out[o], 1, 'pegado a la pared izquierda');
   assert.equal(out[o + 1], 0, 'lejos de la derecha');
   assert.ok(Math.abs(out[o + 4] - 1) < 1e-9 && Math.abs(out[o + 5]) < 1e-9, 'estrella a la derecha');
-  assert.ok(Math.abs(out[o + 6] - 0.7) < 1e-9, 'cercanía de la estrella');
+  assert.ok(Math.abs(out[o + 6] - 0.7) < 1e-9, 'cercanía de la estrella más cercana');
   assert.equal(out[o + 7], 1);
+});
+
+test('de varias estrellas el bot mira la más cercana', () => {
+  const s = emptyState();
+  const p = s.players[0];
+  s.stars = [{ x: p.x + 300, y: p.y }, { x: p.x, y: p.y - 100 }, { x: p.x - 250, y: p.y }];
+  const out = NN.sense(s, 0, new Float64Array(NN.N_IN));
+  const o = 8 * SECT + 4;
+  assert.ok(Math.abs(out[o]) < 1e-9 && Math.abs(out[o + 1] + 1) < 1e-9, 'apunta a la de arriba');
+  assert.ok(Math.abs(out[o + 2] - 0.9) < 1e-9);
 });
 
 test('todas las percepciones están acotadas durante una partida real', () => {
@@ -158,8 +167,7 @@ test('con tiempo de reacción el bot actúa con ese retraso exacto', () => {
   w[8 * SECT + 4] = 5; // neurona oculta 0 <- dirección x de la estrella
   w[(NN.N_IN + 1) * NN.N_HID] = 5; // salida x <- neurona oculta 0
   const s = emptyState();
-  s.star.x = s.players[0].x + 200;
-  s.star.y = s.players[0].y;
+  s.stars = [{ x: s.players[0].x + 200, y: s.players[0].y }];
   assert.equal(NN.createBrain(w).act(s, 0).mx, 1);
   const lento = NN.createBrain(w, { delay: 5 });
   const seq = [];

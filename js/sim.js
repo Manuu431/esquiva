@@ -16,7 +16,9 @@
 
     PLAYER_R: 11,
     PLAYER_SPEED: 260, // px/s
-    LIVES: 3,
+    LIVES: 3, // por defecto; se puede elegir entre LIVES_MIN y LIVES_MAX al crear la ronda
+    LIVES_MIN: 1,
+    LIVES_MAX: 5,
     INVULN_TICKS: 90, // 1,5 s de gracia tras un impacto
 
     HAZ_R_MIN: 7,
@@ -36,11 +38,22 @@
     AIM_NOISE: 70,
     OUT_MARGIN: 40,
 
+    STAR_COUNT: 3, // estrellas a la vez: con una sola, se la lleva quien la tenga más cerca
     STAR_R: 10,
     STAR_POINTS: 300, // un tick vivo = 1 punto; una estrella = 5 s
     STAR_MARGIN: 50,
-    STAR_RESPAWN_DIST: 180,
+    STAR_RESPAWN_DIST: 180, // una estrella no reaparece a menos de esto de quien la cogió
+    STAR_MIN_SEP: 140, // ni a menos de esto de otra estrella
+
+    HAZARD_DEFAULT: 1, // dificultad de los proyectiles por defecto (índice de HAZARD_LEVELS)
   });
+
+  // Dificultad de los proyectiles: multiplica su velocidad y su ritmo de aparición.
+  const HAZARD_LEVELS = Object.freeze([
+    Object.freeze({ speed: 0.8, rate: 0.7 }), // suave
+    Object.freeze({ speed: 1, rate: 1 }), // normal
+    Object.freeze({ speed: 1.2, rate: 1.4 }), // intensa
+  ]);
 
   const INV_SQRT2 = Math.SQRT1_2;
 
@@ -52,26 +65,41 @@
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
-  function hazardSpeed(t) {
-    return Math.min(C.HAZ_SPEED_MAX, C.HAZ_SPEED0 + C.HAZ_SPEED_GROW * t);
+  function hazardLevel(level) {
+    return HAZARD_LEVELS[level] || HAZARD_LEVELS[C.HAZARD_DEFAULT];
   }
 
-  function spawnInterval(t) {
+  // t en segundos de ronda; level = dificultad de los proyectiles (por defecto, la normal).
+  function hazardSpeed(t, level) {
+    return Math.min(C.HAZ_SPEED_MAX, C.HAZ_SPEED0 + C.HAZ_SPEED_GROW * t) * hazardLevel(level).speed;
+  }
+
+  function spawnInterval(t, level) {
     // El término cúbico garantiza que ninguna ronda dure para siempre, por bueno que sea quien juegue.
     const rush = t / C.SPAWN_RUSH;
-    return Math.max(C.SPAWN_INTERVAL_MIN, C.SPAWN_INTERVAL0 / (1 + t / C.SPAWN_HALVING + rush * rush * rush));
+    const base = C.SPAWN_INTERVAL0 / (1 + t / C.SPAWN_HALVING + rush * rush * rush) / hazardLevel(level).rate;
+    return Math.max(C.SPAWN_INTERVAL_MIN, base);
   }
 
+  function clampInt(v, def, min, max) {
+    v = v === undefined || v === null ? def : v | 0;
+    return v < min ? min : v > max ? max : v;
+  }
+
+  // opts: { seed, numPlayers, lives (1-5), hazard (0 suave, 1 normal, 2 intensa) }
   function createState(opts) {
     const o = opts || {};
     const n = Math.max(1, Math.min(C.MAX_PLAYERS, o.numPlayers | 0 || 1));
+    const lives = clampInt(o.lives, C.LIVES, C.LIVES_MIN, C.LIVES_MAX);
     const s = {
       tick: 0,
       rng: (o.seed | 0) || 1,
       numPlayers: n,
+      maxLives: lives,
+      hazard: clampInt(o.hazard, C.HAZARD_DEFAULT, 0, HAZARD_LEVELS.length - 1),
       players: [],
       hazards: [],
-      star: { x: 0, y: 0 },
+      stars: [], // estrellas en la arena (no confundir con player.stars, las que lleva cogidas)
       spawnTimer: C.SPAWN_GRACE,
       over: false,
       winner: -1,
@@ -86,7 +114,7 @@
         y: C.H / 2 + Math.sin(a) * rad,
         mx: 0,
         my: 0,
-        lives: C.LIVES,
+        lives: lives,
         inv: 0,
         alive: true,
         score: 0,
@@ -94,26 +122,41 @@
         deathTick: -1,
       });
     }
-    placeStar(s, -1);
+    for (let k = 0; k < C.STAR_COUNT; k++) {
+      s.stars.push({ x: -1e4, y: -1e4 });
+      placeStar(s, k, -1);
+    }
     return s;
   }
 
-  function placeStar(s, avoidIdx) {
+  // Coloca la estrella k en un sitio al azar: lejos de quien la acaba de coger (para que no
+  // encadene) y separada de las demás (para que haya varias carreras, no una).
+  function placeStar(s, k, avoidIdx) {
     const m = C.STAR_MARGIN;
     const avoid = avoidIdx >= 0 ? s.players[avoidIdx] : null;
-    const min2 = C.STAR_RESPAWN_DIST * C.STAR_RESPAWN_DIST;
+    const far2 = C.STAR_RESPAWN_DIST * C.STAR_RESPAWN_DIST;
+    const sep2 = C.STAR_MIN_SEP * C.STAR_MIN_SEP;
     let x = 0;
     let y = 0;
-    for (let tries = 0; tries < 8; tries++) {
+    for (let tries = 0; tries < 10; tries++) {
       x = m + rand(s) * (C.W - 2 * m);
       y = m + rand(s) * (C.H - 2 * m);
-      if (!avoid) break;
-      const dx = x - avoid.x;
-      const dy = y - avoid.y;
-      if (dx * dx + dy * dy >= min2) break;
+      let ok = true;
+      if (avoid) {
+        const dx = x - avoid.x;
+        const dy = y - avoid.y;
+        ok = dx * dx + dy * dy >= far2;
+      }
+      for (let j = 0; ok && j < s.stars.length; j++) {
+        if (j === k) continue;
+        const dx = x - s.stars[j].x;
+        const dy = y - s.stars[j].y;
+        ok = dx * dx + dy * dy >= sep2;
+      }
+      if (ok) break;
     }
-    s.star.x = x;
-    s.star.y = y;
+    s.stars[k].x = x;
+    s.stars[k].y = y;
   }
 
   // Punto del perímetro (justo fuera de la arena) para una fracción u en [0,1).
@@ -171,7 +214,7 @@
     let dy = ty - _pt.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     // Los grandes van algo más lentos que los pequeños.
-    const speed = hazardSpeed(t) * (1.15 - 0.3 * sizeU) * (0.9 + 0.2 * rand(s));
+    const speed = hazardSpeed(t, s.hazard) * (1.15 - 0.3 * sizeU) * (0.9 + 0.2 * rand(s));
     s.hazards.push({ x: _pt.x, y: _pt.y, vx: (dx / d) * speed, vy: (dy / d) * speed, r: r });
   }
 
@@ -228,7 +271,7 @@
     s.spawnTimer -= C.DT;
     while (s.spawnTimer <= 0) {
       spawnHazard(s, t);
-      s.spawnTimer += spawnInterval(t);
+      s.spawnTimer += spawnInterval(t, s.hazard);
     }
 
     const hz = s.hazards;
@@ -265,27 +308,30 @@
       }
     }
 
-    // Estrella: si dos la tocan en el mismo tick, se la lleva el más cercano.
+    // Estrellas: si dos jugadores tocan la misma en el mismo tick, se la lleva el más cercano.
     const sr = C.PLAYER_R + C.STAR_R;
-    let best = -1;
-    let bestD = sr * sr;
-    for (let i = 0; i < np; i++) {
-      const p = players[i];
-      if (!p.alive) continue;
-      const dx = p.x - s.star.x;
-      const dy = p.y - s.star.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestD) {
-        bestD = d2;
-        best = i;
+    for (let k = 0; k < s.stars.length; k++) {
+      const st = s.stars[k];
+      let best = -1;
+      let bestD = sr * sr;
+      for (let i = 0; i < np; i++) {
+        const p = players[i];
+        if (!p.alive) continue;
+        const dx = p.x - st.x;
+        const dy = p.y - st.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD) {
+          bestD = d2;
+          best = i;
+        }
       }
-    }
-    if (best >= 0) {
-      const p = players[best];
-      p.score += C.STAR_POINTS;
-      p.stars++;
-      s.events.push({ type: 'star', p: best, x: s.star.x, y: s.star.y });
-      placeStar(s, best);
+      if (best >= 0) {
+        const p = players[best];
+        p.score += C.STAR_POINTS;
+        p.stars++;
+        s.events.push({ type: 'star', p: best, x: st.x, y: st.y });
+        placeStar(s, k, best);
+      }
     }
 
     // Fin de ronda: en solitario al morir; con varios, cuando queda uno en pie (o ninguno).
@@ -327,6 +373,7 @@
 
   return {
     C: C,
+    HAZARD_LEVELS: HAZARD_LEVELS,
     createState: createState,
     step: step,
     movePlayer: movePlayer,

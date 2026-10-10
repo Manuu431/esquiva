@@ -290,3 +290,50 @@ Lo que NO está verificado y solo se puede comprobar jugando de verdad:
 - La comparación de los bots con un humano: falta que alguien juegue en solitario.
 
 Para actualizar la web basta con hacer commit y `git push`; Pages se recompila sola.
+
+## Iteración 6 — Peticiones tras jugar: 3 estrellas, dificultad y vidas (2026-10-10)
+
+El usuario jugó y pidió tres cosas:
+1. Varias estrellas a la vez (unas 3): con una sola, contra bots se la lleva siempre quien la
+   tiene más cerca.
+2. Dificultad elegible para los proyectiles.
+3. Poder elegir el número de vidas.
+
+Hecho:
+- **3 estrellas siempre en la arena** (`STAR_COUNT`). Al coger una reaparece a más de 180 px de
+  quien la cogió y a más de 140 px de las otras, para que haya varias carreras y no una. El bot
+  sigue recibiendo 3 números sobre "la estrella": ahora son los de la más cercana, así que la red
+  no cambia de forma y los pesos anteriores siguen valiendo.
+- **Dificultad de los proyectiles**: Suave / Normal / Intensa. Multiplica la velocidad (x0,8 /
+  x1 / x1,2) y el ritmo de aparición (x0,7 / x1 / x1,4). La rampa y la "muerte súbita" son las
+  mismas, así que toda ronda sigue acabando (hay test).
+- **Vidas de 1 a 5** (3 por defecto). El marcador dibuja las que haya.
+- Las dos últimas son reglas de la ronda: se eligen en el menú en local y las fija el anfitrión
+  en la sala; los invitados las ven antes de empezar.
+- El récord y el historial "tú contra los bots" solo cuentan con las reglas de referencia (3 vidas,
+  proyectiles normales); con otras reglas se guarda un récord aparte.
+- Protocolo de red 2 (la instantánea lleva varias estrellas y las vidas máximas). Una pestaña con
+  la versión anterior recibe el aviso de recargar la página.
+- Menú y sala compactados: los cuatro ajustes en una fila, para que quepa sin barra de
+  desplazamiento en un portátil de 768 px de alto.
+
+Comprobación del problema que motivó el cambio: test con dos jugadores que van siempre a por su
+estrella más cercana durante 20 partidas; con 3 estrellas el reparto queda por encima de 0,75
+(el que menos coge / el que más).
+
+Bots con las reglas nuevas (los pesos del segundo entrenamiento, medidos otra vez en test con 3
+estrellas; todos puntúan más porque hay más que coger):
+
+| nivel   | puntos (1 estrella) | puntos (3 estrellas) | segundos |
+|---------|--------------------:|---------------------:|---------:|
+| Fácil   |                2768 |                 3285 |     21,8 |
+| Normal  |                6199 |                 8015 |     33,9 |
+| Difícil |                8413 |                11039 |     44,3 |
+| Experto |               11829 |                15137 |     54,9 |
+
+Pruebas: 56 tests de Node; en navegador, un jugador (con vidas y dificultad elegidas en el menú),
+dos pestañas y sala llena de 6.
+
+En curso: tercer entrenamiento (`tres`) con 3 estrellas y partidas repartidas entre las tres
+dificultades (la mitad en normal), para ver si un bot criado con las reglas nuevas mejora al que
+solo las ha heredado.

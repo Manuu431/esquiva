@@ -39,6 +39,36 @@ test('la instantánea codificada reproduce el estado (con precisión de 0,1 px)'
   s.hazards.forEach((z, i) => {
     assert.ok(Math.abs(v.hazards[i].x - z.x) <= 0.05 + 1e-9 && Math.abs(v.hazards[i].vx - z.vx) <= 0.05 + 1e-9);
   });
+  assert.equal(v.stars.length, 3);
+  s.stars.forEach((st, i) => {
+    assert.ok(Math.abs(v.stars[i].x - st.x) <= 0.05 + 1e-9 && Math.abs(v.stars[i].y - st.y) <= 0.05 + 1e-9);
+  });
+  assert.equal(v.maxLives, 3);
+});
+
+test('reglas de la ronda: el anfitrión elige vidas y dificultad, y los invitados las ven', () => {
+  const w = createWorld();
+  const bea = w.addClient('Bea', 30);
+  w.host.setRules(5, 2);
+  w.run(10);
+  assert.equal(bea.net.room.lives, 5);
+  assert.equal(bea.net.room.hazard, 2);
+  w.host.start(7);
+  w.run(Netcode.COUNTDOWN_TICKS + 12);
+  assert.equal(w.host.state.maxLives, 5);
+  assert.equal(w.host.state.hazard, 2);
+  const v = bea.net.view(w.now());
+  assert.equal(v.state.maxLives, 5, 'el invitado sabe cuántas vidas dibujar');
+  assert.ok(v.state.players.every((p) => p.lives === 5));
+  assert.equal(v.state.stars.length, 3);
+
+  // Valores absurdos se recortan; por defecto, 3 vidas y dificultad normal.
+  const otro = createWorld();
+  assert.equal(otro.host.lives, 3);
+  assert.equal(otro.host.hazard, 1);
+  otro.host.setRules(40, -2);
+  assert.equal(otro.host.lives, 5);
+  assert.equal(otro.host.hazard, 0);
 });
 
 test('sala: entrar, ver la lista de jugadores y recibir la configuración', () => {

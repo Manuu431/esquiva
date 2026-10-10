@@ -15,7 +15,7 @@
   'use strict';
 
   const C = Sim.C;
-  const PROTOCOL = 1;
+  const PROTOCOL = 2; // 2: varias estrellas y reglas de ronda (vidas, dificultad)
   const STEP_MS = 1000 / C.TICK_HZ;
   const SNAP_EVERY = 3; // ticks entre instantáneas (20 por segundo)
   const COUNTDOWN_TICKS = 3 * C.TICK_HZ;
@@ -58,7 +58,9 @@
       const ev = events[i];
       e.push(EVENT_TYPES.indexOf(ev.type), ev.p, Math.round(ev.x), Math.round(ev.y));
     }
-    return { t: 's', r: round, k: s.tick, o: s.over ? 1 : 0, w: s.winner, p: p, h: h, s: [r10(s.star.x), r10(s.star.y)], e: e, a: -1 };
+    const st = [];
+    for (let i = 0; i < s.stars.length; i++) st.push(r10(s.stars[i].x), r10(s.stars[i].y));
+    return { t: 's', r: round, k: s.tick, o: s.over ? 1 : 0, w: s.winner, l: s.maxLives, p: p, h: h, s: st, e: e, a: -1 };
   }
 
   // Devuelve un objeto con la misma forma que el estado de sim.js (lo justo para dibujar).
@@ -82,14 +84,17 @@
     for (let i = 0; i + H_FIELDS <= m.h.length; i += H_FIELDS) {
       hazards.push({ x: m.h[i] / 10, y: m.h[i + 1] / 10, vx: m.h[i + 2] / 10, vy: m.h[i + 3] / 10, r: m.h[i + 4] / 10 });
     }
+    const stars = [];
+    for (let i = 0; i + 2 <= m.s.length; i += 2) stars.push({ x: m.s[i] / 10, y: m.s[i + 1] / 10 });
     return {
       tick: m.k,
       over: m.o === 1,
       winner: m.w,
+      maxLives: m.l,
+      stars: stars,
       numPlayers: players.length,
       players: players,
       hazards: hazards,
-      star: { x: m.s[0] / 10, y: m.s[1] / 10 },
     };
   }
 
@@ -116,6 +121,8 @@
       round: 0,
       bots: 0,
       level: 0,
+      lives: C.LIVES, // reglas de la ronda, las fija el anfitrión
+      hazard: C.HAZARD_DEFAULT,
       members: [{ id: null, name: cleanName(o.name), wins: 0 }], // id null = el anfitrión
       roster: [], // quién juega la ronda en curso: { name, kind, level, wins }
       state: null,
@@ -139,6 +146,8 @@
         cd: host.countdown,
         bots: host.bots,
         level: host.level,
+        lives: host.lives,
+        hazard: host.hazard,
         members: host.members.map(function (m) {
           return { name: m.name, wins: m.wins, host: m.id === null };
         }),
@@ -222,6 +231,12 @@
       changed();
     };
 
+    host.setRules = function (lives, hazard) {
+      host.lives = Math.max(C.LIVES_MIN, Math.min(C.LIVES_MAX, lives | 0 || C.LIVES));
+      host.hazard = Math.max(0, Math.min(Sim.HAZARD_LEVELS.length - 1, hazard | 0));
+      changed();
+    };
+
     host.canStart = function () {
       return host.phase === 'lobby' || host.phase === 'over';
     };
@@ -258,7 +273,7 @@
       }
       host.roster = roster;
       host.round++;
-      host.state = Sim.createState({ seed: seed, numPlayers: roster.length });
+      host.state = Sim.createState({ seed: seed, numPlayers: roster.length, lives: host.lives, hazard: host.hazard });
       host.phase = 'countdown';
       host.countdown = COUNTDOWN_TICKS;
       pendingEvents = [];
@@ -345,7 +360,7 @@
     let lastTickMs = 0;
     let cdEnd = 0;
     const view = { state: null, meta: [], localIdx: -1, countdown: 0, hazExt: 0, plExt: 0 };
-    const viewState = { tick: 0, over: false, winner: -1, numPlayers: 0, players: [], hazards: [], star: { x: 0, y: 0 } };
+    const viewState = { tick: 0, over: false, winner: -1, maxLives: C.LIVES, numPlayers: 0, players: [], hazards: [], stars: [] };
 
     const client = {
       phase: 'connecting', // connecting | lobby | countdown | playing | over
@@ -521,7 +536,8 @@
       viewState.winner = snap.winner;
       viewState.numPlayers = snap.numPlayers;
       viewState.hazards = snap.hazards;
-      viewState.star = snap.star;
+      viewState.stars = snap.stars;
+      viewState.maxLives = snap.maxLives;
       viewState.players.length = snap.players.length;
       const me = view.localIdx;
       for (let i = 0; i < snap.players.length; i++) {

@@ -73,9 +73,20 @@
     out[o++] = wallNear(p.y - C.PLAYER_R);
     out[o++] = wallNear(C.H - C.PLAYER_R - p.y);
 
-    const sx = s.star.x - p.x;
-    const sy = s.star.y - p.y;
-    const sd = Math.sqrt(sx * sx + sy * sy) || 1e-6;
+    // De las estrellas que hay en la arena, el bot solo mira la más cercana.
+    let sx = 0;
+    let sy = 0;
+    let sd = Infinity;
+    for (let k = 0; k < s.stars.length; k++) {
+      const ex = s.stars[k].x - p.x;
+      const ey = s.stars[k].y - p.y;
+      const ed = Math.sqrt(ex * ex + ey * ey) || 1e-6;
+      if (ed < sd) {
+        sd = ed;
+        sx = ex;
+        sy = ey;
+      }
+    }
     out[o++] = sx / sd;
     out[o++] = sy / sd;
     out[o++] = 1 - Math.min(1, sd / 1000);

@@ -26,11 +26,11 @@
 
       <div class="panel">
         <h2>En este ordenador</h2>
-        <div class="row">
+        <div class="row four">
           <label class="field small">
             <span>Bots</span>
             <select id="bots">
-              <option value="0">Ninguno</option>
+              <option value="0">0</option>
               <option value="1">1</option>
               <option value="2">2</option>
               <option value="3" selected>3</option>
@@ -39,8 +39,26 @@
             </select>
           </label>
           <label class="field small">
-            <span>Nivel de los bots</span>
+            <span>Nivel</span>
             <select id="level"></select>
+          </label>
+          <label class="field small">
+            <span>Vidas</span>
+            <select id="lives">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </label>
+          <label class="field small">
+            <span>Proyectiles</span>
+            <select id="hazard">
+              <option value="0">Suave</option>
+              <option value="1" selected>Normal</option>
+              <option value="2">Intensa</option>
+            </select>
           </label>
         </div>
         <button id="btn-play" class="primary">Jugar</button>
@@ -65,11 +83,11 @@
       <h2 id="lobby-title">Sala</h2>
       <p class="code-box"><span id="lobby-code">-----</span><button id="btn-copy" class="tiny">Copiar enlace</button></p>
       <ul id="lobby-players" class="players"></ul>
-      <div class="row" id="lobby-host-controls">
+      <div class="row four" id="lobby-host-controls">
         <label class="field small">
           <span>Bots</span>
           <select id="lobby-bots">
-            <option value="0" selected>Ninguno</option>
+            <option value="0" selected>0</option>
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3</option>
@@ -80,6 +98,26 @@
           <span>Nivel</span>
           <select id="lobby-level"></select>
         </label>
+        <label class="field small">
+          <span>Vidas</span>
+          <select id="lobby-lives">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+          </select>
+        </label>
+        <label class="field small">
+          <span>Proyectiles</span>
+          <select id="lobby-hazard">
+              <option value="0">Suave</option>
+              <option value="1" selected>Normal</option>
+              <option value="2">Intensa</option>
+          </select>
+        </label>
+      </div>
+      <div class="row" id="lobby-start-row">
         <button id="btn-start" class="primary">Empezar</button>
       </div>
       <p id="lobby-status" class="note"></p>

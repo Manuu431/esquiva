@@ -159,27 +159,145 @@ test('a igualdad de puntos gana quien sigue en pie', () => {
   assert.deepEqual(Sim.ranking(s), [1, 0]);
 });
 
-test('coger la estrella da puntos y la recoloca lejos de quien la cogió', () => {
+// Aparta todas las estrellas a las esquinas para que un test controle cuáles se tocan.
+function parkStars(s) {
+  const corners = [[60, 60], [740, 540], [740, 60], [60, 540]];
+  s.stars.forEach((st, k) => {
+    st.x = corners[k][0];
+    st.y = corners[k][1];
+  });
+}
+
+test('hay varias estrellas a la vez, dentro de la arena y separadas entre sí', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const s = Sim.createState({ seed: seed, numPlayers: 4 });
+    assert.equal(s.stars.length, C.STAR_COUNT);
+    assert.equal(C.STAR_COUNT, 3);
+    for (let a = 0; a < s.stars.length; a++) {
+      const st = s.stars[a];
+      assert.ok(st.x >= C.STAR_MARGIN && st.x <= C.W - C.STAR_MARGIN && st.y >= C.STAR_MARGIN && st.y <= C.H - C.STAR_MARGIN);
+      for (let b = a + 1; b < s.stars.length; b++) {
+        assert.ok(Math.hypot(st.x - s.stars[b].x, st.y - s.stars[b].y) >= C.STAR_MIN_SEP - 1e-9, 'semilla ' + seed);
+      }
+    }
+  }
+});
+
+test('coger una estrella da puntos y la recoloca lejos de quien la cogió y de las otras', () => {
   const s = Sim.createState({ seed: 11 });
   const p = s.players[0];
+  parkStars(s);
   for (let n = 0; n < 50; n++) {
-    s.star.x = p.x;
-    s.star.y = p.y;
+    const k = n % C.STAR_COUNT;
+    s.stars[k].x = p.x;
+    s.stars[k].y = p.y;
     const before = p.score;
     Sim.step(s, [null]);
     assert.equal(p.score, before + 1 + C.STAR_POINTS);
     assert.equal(p.stars, n + 1);
-    assert.ok(Math.hypot(s.star.x - p.x, s.star.y - p.y) >= C.PLAYER_R + C.STAR_R, 'no reaparece encima');
-    assert.ok(s.star.x >= C.STAR_MARGIN && s.star.x <= C.W - C.STAR_MARGIN);
-    assert.ok(s.star.y >= C.STAR_MARGIN && s.star.y <= C.H - C.STAR_MARGIN);
+    assert.equal(s.stars.length, C.STAR_COUNT, 'siempre hay las mismas en la arena');
+    const st = s.stars[k];
+    assert.ok(Math.hypot(st.x - p.x, st.y - p.y) >= C.STAR_RESPAWN_DIST - 1e-9, 'reaparece lejos de quien la cogió');
+    assert.ok(st.x >= C.STAR_MARGIN && st.x <= C.W - C.STAR_MARGIN);
+    assert.ok(st.y >= C.STAR_MARGIN && st.y <= C.H - C.STAR_MARGIN);
     s.hazards.length = 0;
+  }
+});
+
+test('un jugador puede coger dos estrellas en el mismo tick', () => {
+  const s = Sim.createState({ seed: 11 });
+  const p = s.players[0];
+  parkStars(s);
+  s.stars[0].x = p.x + 5;
+  s.stars[0].y = p.y;
+  s.stars[2].x = p.x - 5;
+  s.stars[2].y = p.y;
+  Sim.step(s, [null]);
+  assert.equal(p.stars, 2);
+  assert.equal(p.score, 1 + 2 * C.STAR_POINTS);
+});
+
+test('con tres estrellas ya no se las lleva todas quien tenga suerte con la primera', () => {
+  // Dos jugadores que van siempre a por su estrella más cercana: el reparto debe ser
+  // razonablemente parejo a lo largo de muchas partidas.
+  const chase = (s, i) => {
+    const p = s.players[i];
+    let best = s.stars[0];
+    for (const st of s.stars) if (Math.hypot(st.x - p.x, st.y - p.y) < Math.hypot(best.x - p.x, best.y - p.y)) best = st;
+    return { mx: Math.abs(best.x - p.x) > 3 ? Math.sign(best.x - p.x) : 0, my: Math.abs(best.y - p.y) > 3 ? Math.sign(best.y - p.y) : 0 };
+  };
+  let a = 0;
+  let b = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const s = Sim.createState({ seed: seed, numPlayers: 2, lives: 5, hazard: 0 });
+    for (let t = 0; t < 60 * 12 && !s.over; t++) Sim.step(s, [chase(s, 0), chase(s, 1)]);
+    a += s.players[0].stars;
+    b += s.players[1].stars;
+  }
+  assert.ok(a + b > 150, 'se cogen muchas estrellas: ' + (a + b));
+  assert.ok(Math.min(a, b) / Math.max(a, b) > 0.75, 'reparto parejo: ' + a + ' / ' + b);
+});
+
+test('las vidas se pueden elegir entre 1 y 5 (3 por defecto)', () => {
+  assert.equal(Sim.createState({ seed: 1 }).players[0].lives, 3);
+  assert.equal(Sim.createState({ seed: 1 }).maxLives, 3);
+  for (const [pedido, real] of [[1, 1], [2, 2], [5, 5], [0, 1], [-3, 1], [99, 5], [undefined, 3]]) {
+    const s = Sim.createState({ seed: 1, numPlayers: 2, lives: pedido });
+    assert.equal(s.maxLives, real, 'pedido ' + pedido);
+    assert.ok(s.players.every((p) => p.lives === real));
+  }
+  // Con 1 vida, el primer impacto elimina.
+  const s = Sim.createState({ seed: 1, lives: 1 });
+  s.hazards.push(hazardAt(s.players[0].x, s.players[0].y));
+  Sim.step(s, [null]);
+  assert.equal(s.over, true);
+});
+
+test('la dificultad de los proyectiles cambia su velocidad y su ritmo', () => {
+  for (const t of [0, 20, 60]) {
+    assert.ok(Sim.hazardSpeed(t, 0) < Sim.hazardSpeed(t, 1) && Sim.hazardSpeed(t, 1) < Sim.hazardSpeed(t, 2));
+    assert.ok(Sim.spawnInterval(t, 0) > Sim.spawnInterval(t, 1) && Sim.spawnInterval(t, 1) > Sim.spawnInterval(t, 2));
+    assert.equal(Sim.hazardSpeed(t), Sim.hazardSpeed(t, 1), 'por defecto, normal');
+    assert.equal(Sim.spawnInterval(t), Sim.spawnInterval(t, 1));
+  }
+  // En una partida real: más proyectiles nacidos y más rápidos cuanto más alta.
+  const medir = (hazard) => {
+    const s = Sim.createState({ seed: 77, hazard: hazard, lives: 5 });
+    s.players[0].lives = 1e9;
+    const seen = new Set();
+    let speed = 0;
+    for (let t = 0; t < 60 * 40; t++) {
+      Sim.step(s, [wiggle(s.tick, 0)]);
+      for (const z of s.hazards) {
+        if (seen.has(z)) continue;
+        seen.add(z);
+        speed += Math.hypot(z.vx, z.vy);
+      }
+    }
+    return { n: seen.size, speed: speed / seen.size };
+  };
+  const suave = medir(0);
+  const normal = medir(1);
+  const intensa = medir(2);
+  assert.ok(suave.n < normal.n * 0.85 && normal.n < intensa.n * 0.85, 'ritmo: ' + [suave.n, normal.n, intensa.n]);
+  assert.ok(suave.speed < normal.speed * 0.9 && normal.speed < intensa.speed * 0.9, 'velocidad');
+  assert.equal(Sim.createState({ seed: 1, hazard: 9 }).hazard, 2, 'fuera de rango se recorta');
+  assert.equal(Sim.createState({ seed: 1 }).hazard, C.HAZARD_DEFAULT);
+});
+
+test('toda ronda acaba también con proyectiles suaves y 5 vidas', () => {
+  for (let seed = 1; seed <= 4; seed++) {
+    const s = Sim.createState({ seed: seed, hazard: 0, lives: 5 });
+    for (let t = 0; t < 60 * 300 && !s.over; t++) Sim.step(s, [null]);
+    assert.equal(s.over, true, 'semilla ' + seed);
   }
 });
 
 test('si dos tocan la estrella a la vez se la lleva el más cercano', () => {
   const s = Sim.createState({ seed: 11, numPlayers: 2 });
-  s.star.x = 400;
-  s.star.y = 300;
+  parkStars(s);
+  s.stars[1].x = 400;
+  s.stars[1].y = 300;
   s.players[0].x = 410;
   s.players[0].y = 300;
   s.players[1].x = 395;

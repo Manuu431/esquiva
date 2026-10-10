@@ -34,7 +34,14 @@ const CFG = {
   maxTicks: 60 * 240,
   valSeeds: 20, // semillas fijas para comparar generaciones entre sí
   restMs: 150, // pausa entre generaciones para no acaparar el portátil
+  // Dificultad de los proyectiles en cada partida de entrenamiento (se repite en ciclo): la
+  // mitad en normal y el resto repartido, para que el bot sirva en las tres.
+  hazards: [1, 0, 1, 2, 1, 0, 1, 2],
 };
+
+function trainRules(i) {
+  return { hazard: CFG.hazards[i % CFG.hazards.length] };
+}
 
 const DIR = path.join(__dirname, 'runs', CFG.name);
 const VAL = T.seedList(900001, CFG.valSeeds);
@@ -136,7 +143,7 @@ async function main() {
     for (let e = 0; e < CFG.episodes; e++) seeds.push(1 + rng.int(800000));
 
     for (let i = 0; i < pop.length; i++) {
-      fit[i] = T.evaluate(T.brainController(pop[i], CFG.delay), seeds, CFG.maxTicks).score;
+      fit[i] = T.evaluate(T.brainController(pop[i], CFG.delay), seeds, CFG.maxTicks, trainRules).score;
     }
 
     const order = Array.from(fit.keys()).sort(function (a, b) {

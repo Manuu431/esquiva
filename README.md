@@ -11,11 +11,15 @@ aprendieron a jugar por **neuroevolución**, y corren en tu navegador junto a lo
 ## Cómo se juega
 
 - Muévete con **WASD** o las **flechas** (en móvil, arrastra el dedo). **M** silencia, **Esc** sale.
-- Tienes 3 vidas. Cada impacto quita una y te deja 1,5 s de invulnerabilidad.
+- Tienes 3 vidas (se puede elegir de 1 a 5). Cada impacto quita una y te deja 1,5 s de
+  invulnerabilidad.
+- Siempre hay **3 estrellas** en la arena; cuando alguien coge una, aparece otra lejos de él.
 - Puntos: 1 por cada tick en pie (60 por segundo) y **300 por estrella**.
 - La ronda acaba cuando solo queda uno en pie. **Gana quien más puntos tiene**, no necesariamente
-  quien más aguanta: ir a por la estrella es arriesgado y rentable.
+  quien más aguanta: ir a por las estrellas es arriesgado y rentable.
 - Los proyectiles salen cada vez más rápido y más seguidos. Nadie aguanta mucho más de 3 minutos.
+- Antes de empezar se elige la dificultad de los proyectiles: **Suave**, **Normal** o **Intensa**
+  (cambia su velocidad y cada cuánto salen). En una sala, vidas y dificultad las fija el anfitrión.
 
 ### Con amigos
 
@@ -55,15 +59,17 @@ Sin frameworks ni paso de compilación: HTML, CSS y JavaScript tal cual.
 
 Cada bot percibe 32 números: para cada una de 8 direcciones, el proyectil más amenazante (cómo de
 cerca está, cómo de inminente es el impacto y por qué lado pasaría de largo), la cercanía de las 4
-paredes, hacia dónde queda la estrella y si es invulnerable. De ahí salen dos números que se convierten en una de las 9
-acciones del teclado. No puede hacer nada que no pueda hacer una persona.
+paredes, hacia dónde queda la estrella más cercana y si es invulnerable. De ahí salen dos números
+que se convierten en una de las 9 acciones del teclado. No puede hacer nada que no pueda hacer una
+persona.
 
 El entrenamiento (`train/evolve.js`) es un algoritmo evolutivo clásico: una población de 64 redes
 al azar juega 8 partidas cada una; las mejores se quedan (élite), el resto se elige por torneo,
 se cruzan neurona a neurona y se mutan con ruido gaussiano. Así 300 generaciones.
 
 Resultados en 60 partidas que ningún bot había visto (detalle por generación en
-`train/results/` y en `LOG.md`):
+`train/results/` y en `LOG.md`). Esta tabla es del entrenamiento original, cuando había una sola
+estrella en la arena:
 
 | jugador | puntos | aguanta |
 |---|---:|---:|
@@ -78,7 +84,8 @@ Resultados en 60 partidas que ningún bot había visto (detalle por generación 
 
 Los niveles del juego salen de esa misma evolución: *Fácil* y *Normal* son campeones de
 generaciones tempranas (la 6 y la 40); *Difícil* y *Experto* son el campeón final, con 100 ms de
-tiempo de reacción y sin él. Jugando solos hacen de media 2768, 6199, 8413 y 11829 puntos.
+tiempo de reacción y sin él. Con las reglas actuales (3 estrellas, 3 vidas, proyectiles normales)
+hacen de media, jugando solos, 3285, 8015, 11039 y 15137 puntos.
 
 Hubo dos entrenamientos. En el primero la red veía de cada proyectil «cerca y acercándose» y se
 quedó en 8685 puntos. En el segundo ve «cuándo y por dónde pasará», con la misma red y el mismo

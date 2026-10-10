@@ -19,8 +19,12 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
 
     // Partida sin bots.
     await page.eval('document.getElementById("bots").value = "0"; document.getElementById("name").value = "Prueba"');
+    // Reglas elegidas en el menú: 5 vidas y proyectiles suaves.
+    await page.eval('document.getElementById("lives").value = "5"; document.getElementById("hazard").value = "0"');
     await page.click('#btn-play');
     assert.equal(await page.eval('Esquiva.screen()'), 'countdown');
+    const reglas = await page.eval('(() => { const s = Esquiva.state(); return { vidas: s.maxLives, tiene: s.players[0].lives, proyectiles: s.hazard, estrellas: s.stars.length }; })()');
+    assert.deepEqual(reglas, { vidas: 5, tiene: 5, proyectiles: 0, estrellas: 3 });
     await waitFor(() => page.eval('Esquiva.screen() === "playing"'), 6000, 'fin de la cuenta atrás');
 
     // Mantener pulsada la flecha derecha debe mover al jugador a la derecha.
@@ -74,6 +78,7 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
     const niveles = await page.eval('Esquiva.levels().map(l => l.name)');
     if (niveles.length) {
       await page.eval('document.getElementById("bots").value = "3"; document.getElementById("level").value = "' + (niveles.length - 1) + '"');
+      await page.eval('document.getElementById("lives").value = "3"; document.getElementById("hazard").value = "1"');
       await page.click('#btn-play');
       await waitFor(() => page.eval('Esquiva.screen() === "playing"'), 6000, 'partida contra bots');
       const antes = await page.eval('Esquiva.state().players.map(p => [p.x, p.y])');

@@ -381,3 +381,114 @@ Verificado en la URL pública tras publicar: sirve la versión nueva y la prueba
 (crear sala, unirse, jugar dos rondas, caída del anfitrión) pasa.
 
 Pendiente: los datos de un humano jugando en solitario, y probar entre redes distintas y en móvil.
+
+## Iteración 7 — Registro de partidas, estrellas lejos de los jugadores y bots que compiten (2026-10-10)
+
+**Primer dato de un humano.** El usuario: 7032 puntos contra 1 bot Difícil, con 3 vidas y
+proyectiles intensos. Como referencia, dos bots Difícil (los de entonces) jugando entre sí con
+esos ajustes hacen de media 6062 puntos y 32,3 s. Es una sola partida y no es la configuración de
+referencia, así que no da para concluir nada, pero el humano queda por encima de la media del bot
+al que se enfrentaba. Desde esta versión el juego guarda todas las partidas con sus ajustes, así
+que la comparación se podrá hacer con muchas.
+
+Peticiones del usuario:
+1. Un registro de sus partidas con puntos, ajustes y medias, con filtros por tipo, y los récords
+   de cada modo arriba.
+2. Que las estrellas no aparezcan encima ni muy cerca de los jugadores, y con muchos jugadores,
+   algo más separadas.
+3. Entrenar a un bot con otros bots, y que vaya a la estrella más cercana salvo que un rival esté
+   más cerca y vaya a cogerla: entonces, a otra.
+
+### 1. Mis partidas
+
+- `js/stats.js` (sin DOM, con tests): cada partida terminada se guarda en el navegador con fecha,
+  puntos, tiempo, estrellas, puesto y sus ajustes (local o sala, jugadores, bots y su nivel, vidas,
+  proyectiles). Tope de 1000 partidas. Recupera el historial y los récords de versiones anteriores.
+- Pantalla "Mis partidas": arriba, una fila por modo jugado con récord, media, partidas y ganadas;
+  al pulsar una fila los filtros se ponen en ese modo. Debajo, filtros (dónde, bots, nivel, vidas,
+  proyectiles), el resumen de lo filtrado y la lista. "Borrar registro" pide confirmación.
+- En el menú se ve el récord y la media con los ajustes elegidos en ese momento, y al acabar cada
+  partida, si es récord del modo.
+- Un "modo" es la combinación exacta de ajustes; en sala cuenta también cuántos humanos había.
+- La partida de 7032 puntos no está en el registro: la versión anterior solo guardaba las partidas
+  en solitario.
+
+### 2. Estrellas lejos de los jugadores
+
+Una estrella aparece a más de 110 px de cualquier jugador en pie, más 10 px por cada jugador
+adicional (160 px con 6), además de las reglas que ya había (180 px de quien la cogió, 140 px de
+las otras). Se prueban hasta 16 sitios; si la arena está tan llena que ninguno cumple todo, se
+queda el que más se acerca. En partidas simuladas con 1, 2, 4 y 6 jugadores persiguiendo
+estrellas, más del 97 % aparecen a la distancia pedida y ninguna a menos del 60 % de ella (hay test).
+
+### 3. Bots que compiten por las estrellas
+
+Primero comprobé si la idea servía antes de entrenar nada. El bot elige estrella con un coste:
+
+    coste = mi distancia + A x (ventaja del rival que va hacia ella) + B x (ventaja de cualquier rival)
+
+y va a la de menor coste ("ventaja" = cuántos px está ese rival más cerca que yo; "va hacia ella"
+se mide con la dirección en la que se mueve). Con A = B = 0 es la más cercana, como antes. Con los
+mismos pesos de red, dos bots con criterio contra dos sin él, 80 partidas:
+
+| criterio (A, B) | con criterio | sin criterio | ganan los que tienen criterio |
+|-----------------|-------------:|-------------:|------------------------------:|
+| (1, 0)          |        11638 |        10951 |                          70 % |
+| (2, 0)          |        12764 |        11081 |                          78 % |
+| (4, 0)          |        12950 |        10997 |                          85 % |
+| (4, 2)          |        13423 |        11371 |                          84 % |
+
+La idea del usuario funciona, y mucho. En vez de fijar A y B a mano, pasan a formar parte del
+genoma (424 números: 422 de la red + 2) y los ajusta la evolución.
+
+Entrenamiento en arena (`train/evolve-arena.js`): población de 64 que parte de los bots
+publicados (no de redes al azar), con criterios iniciales variados; en cada generación cada
+individuo juega 8 partidas de 4 contra otros tres de la población sorteados; fitness = sus puntos.
+200 generaciones, unos 18 minutos. Métricas (`train/results/arena.csv`); "campeón contra 3" son
+16 partidas fijas del campeón de esa generación contra tres bots de los de antes:
+
+| gen | media población | campeón contra 3: puntos | los 3: puntos | gana | criterio medio (A, B) |
+|----:|----------------:|-------------------------:|--------------:|-----:|-----------------------|
+|   0 |           12522 |                    13521 |         11605 | 56 % | (1,69, 0,73)          |
+|  50 |           13377 |                    14109 |         11910 | 63 % | (3,96, 1,79)          |
+| 100 |           13770 |                    15095 |         11328 | 81 % | (5,38, 3,62)          |
+| 150 |           14365 |                    15639 |         11009 | 88 % | (7,61, 4,09)          |
+| 199 |           14589 |                    15136 |         12067 | 63 % | (8,90, 2,70)          |
+
+La evolución empuja el criterio hacia arriba sin parar: empezó en torno a (1,7, 0,7) y acabó en
+torno a (9, 3). Es decir, "si un rival va hacia ella y está más cerca, dala por perdida" resulta
+ser todavía más rentable de lo que yo había probado a mano.
+
+Resultado en test (80 partidas de 4, dos contra dos, sin tiempo de reacción):
+
+| quién contra los bots anteriores            | puntos         | rondas ganadas |
+|---------------------------------------------|----------------|---------------:|
+| campeones de arena (red nueva + criterio)   | 14688 vs 11269 |           96 % |
+| solo el criterio (red anterior + criterio)  | 13239 vs 11843 |           81 % |
+| solo la red nueva (criterio a 0)            | 11581 vs 10589 |           69 % |
+
+Jugando solo, el campeón de arena también mejora un poco: 16447 puntos frente a 15636.
+**Integrado**: Difícil y Experto son ahora el campeón de arena (criterio 6,90 / 5,04).
+Fácil y Normal siguen yendo a la más cercana: es parte de lo que los hace más fáciles.
+
+Niveles nuevos (jugando solos, reglas de referencia): Fácil 3282, Normal 7757, Difícil 10982,
+Experto 16582 puntos.
+
+Límites de lo hecho:
+- Qué estrella elegir no lo aprende la red: es una regla con dos números ajustados por evolución.
+  Dársela a la red como entradas (las tres estrellas y la ventaja de cada rival) sería "más
+  aprendido", pero una red de 12 neuronas difícilmente aprende a elegir entre direcciones, y esto
+  funciona. La red sí se ha reentrenado jugando contra otros.
+- El bot predice al rival por su dirección actual, nada más. Un humano que amaga lo engaña.
+- Se ha entrenado y medido con 4 bots; con 2 o con 6 no está medido.
+
+### Un fallo que casi se cuela
+
+Al pasar el genoma de 422 a 424 números, el juego rechazaba el `weights.json` publicado y se
+quedaba sin bots, en silencio. La prueba de navegador no lo detectó porque se saltaba la parte de
+bots si no había niveles. Corregido: el juego acepta los dos formatos, y la prueba falla si hay
+`weights.json` y no se carga ningún nivel.
+
+Pruebas: 69 tests de Node (7 nuevos del registro, y los de colocación de estrellas y elección de
+estrella); en navegador, un jugador (incluye el registro y sus filtros), dos pestañas y sala llena.
+

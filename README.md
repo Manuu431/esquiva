@@ -13,11 +13,15 @@ aprendieron a jugar por **neuroevolución**, y corren en tu navegador junto a lo
 - Muévete con **WASD** o las **flechas** (en móvil, arrastra el dedo). **M** silencia, **Esc** sale.
 - Tienes 3 vidas (se puede elegir de 1 a 5). Cada impacto quita una y te deja 1,5 s de
   invulnerabilidad.
-- Siempre hay **3 estrellas** en la arena; cuando alguien coge una, aparece otra lejos de él.
+- Siempre hay **3 estrellas** en la arena; cuando alguien coge una, aparece otra. Nunca aparecen
+  encima ni cerca de un jugador (cuantos más jugadores, más lejos de todos).
 - Puntos: 1 por cada tick en pie (60 por segundo) y **300 por estrella**.
 - La ronda acaba cuando solo queda uno en pie. **Gana quien más puntos tiene**, no necesariamente
   quien más aguanta: ir a por las estrellas es arriesgado y rentable.
 - Los proyectiles salen cada vez más rápido y más seguidos. Nadie aguanta mucho más de 3 minutos.
+- **Mis partidas** (en el menú) guarda cada partida con sus puntos y sus ajustes: récords por
+  modo, y filtros para ver tu media con más o menos bots, niveles, vidas o proyectiles. Se guarda
+  solo en tu navegador.
 - Antes de empezar se elige la dificultad de los proyectiles: **Suave**, **Normal** o **Intensa**
   (cambia su velocidad y cada cuánto salen). En una sala, vidas y dificultad las fija el anfitrión.
 
@@ -48,6 +52,7 @@ Sin frameworks ni paso de compilación: HTML, CSS y JavaScript tal cual.
 |---|---|
 | `js/sim.js` | Toda la lógica del juego. Pura y determinista (misma semilla, misma partida), sin pantalla: se usa igual en el navegador y en Node. |
 | `js/nn.js` | Los sensores del bot y su red neuronal (32 entradas, 12 neuronas ocultas, 2 salidas). |
+| `js/stats.js` | El registro de partidas del jugador: guardar, filtrar y resumir. |
 | `js/netcode.js` | Reglas de sala y sincronización. No sabe nada de PeerJS, así que se prueba en Node con una red simulada. |
 | `js/net.js` | El transporte: PeerJS / WebRTC. |
 | `js/render.js`, `js/input.js`, `js/audio.js`, `js/main.js` | Dibujo en canvas, teclado y táctil, sonido y menús. |
@@ -59,48 +64,54 @@ Sin frameworks ni paso de compilación: HTML, CSS y JavaScript tal cual.
 
 Cada bot percibe 32 números: para cada una de 8 direcciones, el proyectil más amenazante (cómo de
 cerca está, cómo de inminente es el impacto y por qué lado pasaría de largo), la cercanía de las 4
-paredes, hacia dónde queda la estrella más cercana y si es invulnerable. De ahí salen dos números
+paredes, hacia dónde queda **su estrella objetivo** y si es invulnerable. De ahí salen dos números
 que se convierten en una de las 9 acciones del teclado. No puede hacer nada que no pueda hacer una
 persona.
 
-El entrenamiento (`train/evolve.js`) es un algoritmo evolutivo clásico: una población de 64 redes
-al azar juega 8 partidas cada una; las mejores se quedan (élite), el resto se elige por torneo,
-se cruzan neurona a neurona y se mutan con ruido gaussiano. Así 300 generaciones.
+La estrella objetivo no es siempre la más cercana. El bot descarta la que un rival va a coger
+antes: a su distancia a cada estrella le suma una penalización por la ventaja que le lleva el rival
+que va hacia ella, y va a por la de menor coste. Cuánto pesa esa penalización son dos números que
+forman parte de su «genoma» y que ajusta la evolución, igual que los pesos de la red.
 
-Resultados en 60 partidas que ningún bot había visto (detalle por generación en
-`train/results/` y en `LOG.md`), con las reglas de referencia: 3 estrellas, 3 vidas y
-proyectiles normales.
+El entrenamiento es un algoritmo evolutivo clásico: una población de 64 redes juega varias
+partidas; las mejores se quedan (élite), el resto se elige por torneo, se cruzan neurona a neurona
+y se mutan con ruido gaussiano. Tiene dos fases:
+
+1. **En solitario** (`train/evolve.js`, 300 generaciones desde redes al azar): aprender a esquivar
+   y a coger estrellas.
+2. **En arena** (`train/evolve-arena.js`, 200 generaciones más): cada bot juega contra otros tres de
+   su población, así que lo que se selecciona es jugar bien *contra otros*.
+
+Resultados jugando solos, en 60 partidas que ningún bot había visto y con las reglas de referencia
+(3 estrellas, 3 vidas, proyectiles normales). Detalle por generación en `train/results/` y en
+`LOG.md`.
 
 | jugador | puntos | aguanta |
 |---|---:|---:|
-| Quieto | 817 | 14 s |
-| Aleatorio | 1375 | 20 s |
-| Red sin entrenar (generación 0) | 1478 | 22 s |
-| Red, generación 10 | 7122 | 31 s |
-| Red, generación 80 | 11344 | 47 s |
-| **Red, campeón final** | **15137** | **55 s** |
-| Planificador escrito a mano con 250 ms de reacción | 4586 | 34 s |
-| Planificador escrito a mano perfecto (techo del juego) | 17888 | 203 s |
+| Quieto | 828 | 14 s |
+| Aleatorio | 1376 | 20 s |
+| Red sin entrenar (generación 0) | 1480 | 22 s |
+| Red, generación 10 | 7379 | 33 s |
+| Red, generación 80 | 11321 | 46 s |
+| Red, campeón de la fase en solitario | 15636 | 60 s |
+| **Red, campeón final (tras la fase en arena)** | **16582** | **62 s** |
+| Planificador escrito a mano con 250 ms de reacción | 4510 | 34 s |
+| Planificador escrito a mano perfecto (techo del juego) | 17682 | 202 s |
 
-Los niveles del juego salen de esa misma evolución: *Fácil* y *Normal* son campeones de
-generaciones tempranas (la 6 y la 40); *Difícil* y *Experto* son el campeón final, con 100 ms de
-tiempo de reacción y sin él. Con las reglas actuales (3 estrellas, 3 vidas, proyectiles normales)
-hacen de media, jugando solos, 3285, 8015, 11039 y 15137 puntos.
+Y lo que importa en una partida de verdad, unos contra otros: en 80 partidas de 4 bots (dos
+campeones finales contra dos campeones de la fase en solitario), los finales hacen 14688 puntos
+frente a 11269 y ganan el 96 % de las rondas. Por separado, solo el criterio de estrella da un
+81 % de victorias y solo la red nueva un 69 %.
 
-Hubo tres entrenamientos:
+Los niveles del juego salen de esa misma evolución. *Fácil* y *Normal* son campeones de
+generaciones tempranas de la fase en solitario (la 6 y la 40) y van siempre a la estrella más
+cercana. *Difícil* y *Experto* son el campeón final, con 100 ms de tiempo de reacción y sin él.
+Jugando solos hacen de media 3282, 7757, 10982 y 16582 puntos.
 
-1. La red veía de cada proyectil «cerca y acercándose»: 8685 puntos (con las reglas de entonces,
-   una sola estrella).
-2. La red ve «cuándo y por dónde pasará», con el mismo tamaño y el mismo algoritmo: 11829 puntos
-   con una estrella, 15137 con las tres de ahora. **Son los bots del juego.**
-3. Al pasar a 3 estrellas y añadir dificultades se entrenó de nuevo desde cero con esas reglas.
-   Salió algo peor que el segundo (13440 frente a 15675 puntos en las mismas partidas), así que no
-   se usa. Un solo entrenamiento de cada tipo no permite decir si es azar o si mezclar dificultades
-   perjudica.
-
-La red sigue lejos del planificador perfecto en aguante (55 s frente a 203 s): coge el doble de
-estrellas que él, pero cae mucho antes. Ese planificador ve toda la arena sin límite de alcance;
-ese margen queda para quien quiera seguir el experimento.
+Lo que no salió: dos entrenamientos se descartaron (los primeros sensores, que solo decían «cerca
+y acercándose», y un intento de entrenar desde cero mezclando dificultades, que quedó por debajo).
+Y la red sigue lejos del planificador perfecto en aguante (62 s frente a 202 s): coge más del doble
+de estrellas que él, pero cae mucho antes. Ese margen queda para quien quiera seguir.
 
 ### El retraso de red
 
@@ -129,9 +140,11 @@ node test/browser/solo.js      # partida real en Chrome headless (usa el Chrome 
 node test/browser/online.js    # dos pestañas reales conectadas por PeerJS (necesita Internet)
 
 node train/baselines.js        # jugadores de referencia
-node train/evolve.js --name mio --gens 300 --pop 64 --episodes 8
-node train/eval.js --run mio   # evaluación en partidas de test
-node train/export.js --run mio # genera weights.json
+node train/evolve.js --name mio --gens 300 --pop 64 --episodes 8   # fase en solitario
+node train/eval.js --run mio         # evaluación en partidas de test
+node train/evolve-arena.js --name mia --gens 200                  # fase en arena (parte de weights.json)
+node train/arena.js                  # dos tipos de bot frente a frente
+node train/export.js --run mia --easy mio                         # genera weights.json
 ```
 
 Las pruebas de navegador aceptan una dirección para probar el juego ya publicado:

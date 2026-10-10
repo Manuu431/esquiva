@@ -122,7 +122,7 @@ test('en solitario la ronda acaba al perder la última vida y la puntuación se 
   assert.equal(s.tick, tick);
 });
 
-test('con varios jugadores gana el último en pie', () => {
+test('con varios jugadores la ronda acaba cuando queda uno; sin estrellas gana quien más aguanta', () => {
   const s = Sim.createState({ seed: 3, numPlayers: 3 });
   s.players[0].lives = 1;
   s.players[2].lives = 1;
@@ -136,16 +136,27 @@ test('con varios jugadores gana el último en pie', () => {
   assert.deepEqual(Sim.ranking(s), [1, 2, 0]);
 });
 
-test('si los dos últimos caen en el mismo tick, gana el de más puntos', () => {
-  const s = Sim.createState({ seed: 3, numPlayers: 2 });
+test('gana quien más puntos tiene, aunque haya caído antes', () => {
+  const s = Sim.createState({ seed: 3, numPlayers: 3 });
   s.players[0].lives = 1;
-  s.players[1].lives = 1;
-  s.players[1].score = 500;
+  s.players[0].score = 900; // cogió estrellas
+  s.players[2].lives = 1;
   s.hazards.push(hazardAt(s.players[0].x, s.players[0].y));
-  s.hazards.push(hazardAt(s.players[1].x, s.players[1].y));
+  Sim.step(s, []);
+  s.hazards.push(hazardAt(s.players[2].x, s.players[2].y));
   Sim.step(s, []);
   assert.equal(s.over, true);
-  assert.equal(s.winner, 1);
+  assert.equal(s.winner, 0);
+  assert.deepEqual(Sim.ranking(s), [0, 1, 2]);
+});
+
+test('a igualdad de puntos gana quien sigue en pie', () => {
+  const s = Sim.createState({ seed: 3, numPlayers: 2 });
+  s.players[0].lives = 1;
+  s.hazards.push(hazardAt(s.players[0].x, s.players[0].y));
+  Sim.step(s, []);
+  s.players[0].score = s.players[1].score; // se fuerza el empate
+  assert.deepEqual(Sim.ranking(s), [1, 0]);
 });
 
 test('coger la estrella da puntos y la recoloca lejos de quien la cogió', () => {
@@ -225,17 +236,20 @@ test('quedarse quieto no sirve: el juego acaba matando', () => {
   }
 });
 
-test('compensación de retraso: al jugador remoto se le juzga con el proyectil rebobinado', () => {
-  // Proyectil que ya está encima según el anfitrión, pero que el jugador (con 6 ticks de
-  // retraso) aún veía a 30 px: no debe contar.
-  const mk = (lag) => {
-    const s = Sim.createState({ seed: 41 });
-    const p = s.players[0];
-    p.lag = lag;
-    s.hazards.push(hazardAt(p.x - 5, p.y, 300, 0, 10));
-    Sim.step(s, [null]);
-    return p.lives;
-  };
-  assert.equal(mk(0), C.LIVES - 1);
-  assert.equal(mk(6), C.LIVES);
+test('eliminar a un jugador (desconexión) lo saca de la ronda y puede acabarla', () => {
+  const s = Sim.createState({ seed: 41, numPlayers: 3 });
+  Sim.step(s, []);
+  Sim.eliminate(s, 1);
+  assert.equal(s.players[1].alive, false);
+  assert.equal(s.players[1].deathTick, 1);
+  Sim.step(s, []);
+  assert.equal(s.over, false, 'quedan dos');
+  const score = s.players[1].score;
+  Sim.eliminate(s, 0);
+  Sim.step(s, []);
+  assert.equal(s.over, true);
+  assert.equal(s.winner, 2);
+  assert.equal(s.players[1].score, score, 'el eliminado ya no puntúa');
+  Sim.eliminate(s, 2); // con la ronda acabada no hace nada
+  assert.equal(s.players[2].alive, true);
 });

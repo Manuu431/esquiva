@@ -24,23 +24,23 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
     await waitFor(() => page.eval('Esquiva.screen() === "playing"'), 6000, 'fin de la cuenta atrás');
 
     // Mantener pulsada la flecha derecha debe mover al jugador a la derecha.
-    const x0 = await page.eval('Esquiva.game().state.players[0].x');
+    const x0 = await page.eval('Esquiva.state().players[0].x');
     await page.key('down', 'ArrowRight');
     await sleep(500);
     await page.key('up', 'ArrowRight');
-    const x1 = await page.eval('Esquiva.game().state.players[0].x');
+    const x1 = await page.eval('Esquiva.state().players[0].x');
     assert.ok(x1 > x0 + 60, 'el jugador se movió a la derecha: ' + x0 + ' -> ' + x1);
 
     // La simulación corre a ~60 ticks por segundo de reloj.
-    const t0 = await page.eval('Esquiva.game().state.tick');
+    const t0 = await page.eval('Esquiva.state().tick');
     await sleep(2000);
-    const t1 = await page.eval('Esquiva.game().state.tick');
+    const t1 = await page.eval('Esquiva.state().tick');
     const hz = (t1 - t0) / 2;
     assert.ok(hz > 50 && hz < 70, 'ritmo de simulación ~60 Hz: ' + hz.toFixed(1));
     await page.screenshot(path.join(SHOTS, 'solo-2-jugando.png'));
 
     // Sin tocar nada el juego acaba matando; para no esperar, se dejan las vidas en 1.
-    await page.eval('Esquiva.game().state.players[0].lives = 1');
+    await page.eval('Esquiva.state().players[0].lives = 1');
     await waitFor(() => page.eval('Esquiva.screen() === "over"'), 90000, 'fin de la partida');
     assert.equal(await page.eval('document.getElementById("gameover").classList.contains("hidden")'), false);
     const title = await page.eval('document.getElementById("over-title").textContent');
@@ -54,6 +54,32 @@ const SHOTS = path.resolve(__dirname, '..', '..', '.tools', 'shots');
     await page.key('down', 'Escape');
     await page.key('up', 'Escape');
     assert.equal(await page.eval('Esquiva.screen()'), 'menu');
+
+    // Partida contra 3 bots (si hay pesos entrenados): las redes juegan en el navegador.
+    const niveles = await page.eval('Esquiva.levels().map(l => l.name)');
+    if (niveles.length) {
+      await page.eval('document.getElementById("bots").value = "3"; document.getElementById("level").value = "' + (niveles.length - 1) + '"');
+      await page.click('#btn-play');
+      await waitFor(() => page.eval('Esquiva.screen() === "playing"'), 6000, 'partida contra bots');
+      const antes = await page.eval('Esquiva.state().players.map(p => [p.x, p.y])');
+      assert.equal(antes.length, 4);
+      await sleep(6000);
+      const bots = await page.eval('Esquiva.state().players.map((p, i) => ({ x: p.x, y: p.y, stars: p.stars, alive: p.alive }))');
+      const movidos = bots.filter((p, i) => i > 0 && Math.hypot(p.x - antes[i][0], p.y - antes[i][1]) > 30).length;
+      assert.equal(movidos, 3, 'los tres bots se mueven por su cuenta');
+      assert.ok(bots.slice(1).reduce((a, p) => a + p.stars, 0) >= 1, 'en 6 s algún bot ya ha cogido una estrella');
+      await page.screenshot(path.join(SHOTS, 'solo-4-bots.png'));
+      // El humano no se mueve: cae pronto. La ronda sigue hasta que quede un bot.
+      await page.eval('Esquiva.state().players[0].lives = 1');
+      await waitFor(() => page.eval('Esquiva.screen() === "over"'), 240000, 'fin de la ronda contra bots');
+      const filas = await page.eval('Array.from(document.querySelectorAll("#over-list li")).map(li => li.textContent)');
+      assert.equal(filas.length, 4);
+      assert.ok(filas.filter((f) => f.includes('bot · ' + niveles[niveles.length - 1])).length === 3, 'la tabla marca a los bots y su nivel');
+      await page.screenshot(path.join(SHOTS, 'solo-5-fin-bots.png'));
+      console.log('   contra bots (' + niveles.join(', ') + '): ' + filas.join(' | '));
+      await page.key('down', 'Escape');
+      await page.key('up', 'Escape');
+    }
 
     // Mientras no haya bots entrenados, el 404 de weights.json es esperado.
     const hayPesos = require('node:fs').existsSync(path.resolve(__dirname, '..', '..', 'weights.json'));

@@ -28,8 +28,9 @@
 
     SPAWN_GRACE: 1.0, // s sin proyectiles al empezar
     SPAWN_INTERVAL0: 0.9, // s entre proyectiles al empezar
-    SPAWN_HALVING: 18, // cada tantos s el ritmo sube en una unidad: i0 / (1 + t/18)
-    SPAWN_INTERVAL_MIN: 0.07,
+    SPAWN_HALVING: 18, // cada tantos s el ritmo sube en una unidad: i0 / (1 + t/18 + ...)
+    SPAWN_RUSH: 60, // "muerte súbita": a partir de ~1 min el ritmo crece además con (t/60)^3
+    SPAWN_INTERVAL_MIN: 0.02,
     SPAWN_SAFE_DIST: 150, // un proyectil no nace a menos de esto de un jugador
     AIM_AT_PLAYER: 0.6, // probabilidad de apuntar a un jugador (si no, a un punto al azar)
     AIM_NOISE: 70,
@@ -39,8 +40,6 @@
     STAR_POINTS: 300, // un tick vivo = 1 punto; una estrella = 5 s
     STAR_MARGIN: 50,
     STAR_RESPAWN_DIST: 180,
-
-    MAX_LAG_TICKS: 12, // tope de compensación de retraso (200 ms)
   });
 
   const INV_SQRT2 = Math.SQRT1_2;
@@ -58,7 +57,9 @@
   }
 
   function spawnInterval(t) {
-    return Math.max(C.SPAWN_INTERVAL_MIN, C.SPAWN_INTERVAL0 / (1 + t / C.SPAWN_HALVING));
+    // El término cúbico garantiza que ninguna ronda dure para siempre, por bueno que sea quien juegue.
+    const rush = t / C.SPAWN_RUSH;
+    return Math.max(C.SPAWN_INTERVAL_MIN, C.SPAWN_INTERVAL0 / (1 + t / C.SPAWN_HALVING + rush * rush * rush));
   }
 
   function createState(opts) {
@@ -91,7 +92,6 @@
         score: 0,
         stars: 0,
         deathTick: -1,
-        lag: 0, // ticks de retraso de red de este jugador (solo lo usa el anfitrión)
       });
     }
     placeStar(s, -1);
@@ -242,11 +242,8 @@
         for (let i = 0; i < np; i++) {
           const p = players[i];
           if (!p.alive || p.inv > 0) continue;
-          // Compensación de retraso: para un jugador remoto se compara con el proyectil
-          // donde él lo veía cuando pulsó, es decir, rebobinado p.lag ticks.
-          const back = p.lag * C.DT;
-          const dx = z.x - z.vx * back - p.x;
-          const dy = z.y - z.vy * back - p.y;
+          const dx = z.x - p.x;
+          const dy = z.y - p.y;
           const rr = C.PLAYER_R + z.r * C.HIT_FORGIVE;
           if (dx * dx + dy * dy < rr * rr) {
             p.lives--;
@@ -291,39 +288,29 @@
       placeStar(s, best);
     }
 
-    // Fin de ronda: en solitario al morir; con varios, cuando queda uno (o ninguno).
+    // Fin de ronda: en solitario al morir; con varios, cuando queda uno en pie (o ninguno).
+    // Gana quien más puntos tiene: aguantar puntúa, pero las estrellas también.
     let alive = 0;
-    let last = -1;
-    for (let i = 0; i < np; i++) {
-      if (players[i].alive) {
-        alive++;
-        last = i;
-      }
-    }
+    for (let i = 0; i < np; i++) if (players[i].alive) alive++;
     if (alive <= (np === 1 ? 0 : 1)) {
       s.over = true;
-      if (alive === 1) {
-        s.winner = last;
-      } else {
-        // Nadie en pie: gana quien cayó el último; si empatan, el de más puntos.
-        let w = -1;
-        for (let i = 0; i < np; i++) {
-          const p = players[i];
-          if (w < 0) {
-            w = i;
-            continue;
-          }
-          const q = players[w];
-          if (p.deathTick > q.deathTick || (p.deathTick === q.deathTick && p.score > q.score)) w = i;
-        }
-        s.winner = w;
-      }
+      s.winner = ranking(s)[0];
       s.events.push({ type: 'over', p: s.winner, x: 0, y: 0 });
     }
     return s;
   }
 
-  // Clasificación de la ronda: primero quien sigue vivo, luego quien cayó más tarde, luego puntos.
+  // Retira a un jugador de la ronda (se ha desconectado). El fin de ronda se decide en el
+  // siguiente step(), igual que si hubiera caído jugando.
+  function eliminate(s, idx) {
+    const p = s.players[idx];
+    if (!p || !p.alive || s.over) return;
+    p.lives = 0;
+    p.alive = false;
+    p.deathTick = s.tick;
+  }
+
+  // Clasificación de la ronda: por puntos; a igualdad, quien sigue en pie o cayó más tarde.
   function ranking(s) {
     const idx = s.players.map(function (_, i) {
       return i;
@@ -331,9 +318,9 @@
     idx.sort(function (a, b) {
       const p = s.players[a];
       const q = s.players[b];
+      if (p.score !== q.score) return q.score - p.score;
       if (p.alive !== q.alive) return p.alive ? -1 : 1;
-      if (p.deathTick !== q.deathTick) return q.deathTick - p.deathTick;
-      return q.score - p.score;
+      return q.deathTick - p.deathTick;
     });
     return idx;
   }
@@ -343,6 +330,7 @@
     createState: createState,
     step: step,
     movePlayer: movePlayer,
+    eliminate: eliminate,
     ranking: ranking,
     hazardSpeed: hazardSpeed,
     spawnInterval: spawnInterval,

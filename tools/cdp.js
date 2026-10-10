@@ -76,6 +76,8 @@ async function launch(opts) {
     await page.send('Page.enable');
     await page.send('Runtime.enable');
     await page.send('Log.enable');
+    // Cada pestaña se comporta como si tuviera el foco (si no, las teclas no llegarían a la de atrás).
+    await page.send('Emulation.setFocusEmulationEnabled', { enabled: true });
     if (url) await page.goto(url);
     return page;
   }

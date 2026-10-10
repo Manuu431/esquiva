@@ -68,29 +68,39 @@ al azar juega 8 partidas cada una; las mejores se quedan (élite), el resto se e
 se cruzan neurona a neurona y se mutan con ruido gaussiano. Así 300 generaciones.
 
 Resultados en 60 partidas que ningún bot había visto (detalle por generación en
-`train/results/` y en `LOG.md`). Esta tabla es del entrenamiento original, cuando había una sola
-estrella en la arena:
+`train/results/` y en `LOG.md`), con las reglas de referencia: 3 estrellas, 3 vidas y
+proyectiles normales.
 
 | jugador | puntos | aguanta |
 |---|---:|---:|
-| Quieto | 874 | 15 s |
-| Aleatorio | 1245 | 20 s |
-| Red sin entrenar (generación 0) | 1422 | 23 s |
-| Red, generación 10 | 5553 | 32 s |
-| Red, generación 80 | 8172 | 43 s |
-| **Red, campeón final** | **11829** | **58 s** |
-| Planificador escrito a mano con 250 ms de reacción | 4018 | 35 s |
-| Planificador escrito a mano perfecto (techo del juego) | 16288 | 198 s |
+| Quieto | 817 | 14 s |
+| Aleatorio | 1375 | 20 s |
+| Red sin entrenar (generación 0) | 1478 | 22 s |
+| Red, generación 10 | 7122 | 31 s |
+| Red, generación 80 | 11344 | 47 s |
+| **Red, campeón final** | **15137** | **55 s** |
+| Planificador escrito a mano con 250 ms de reacción | 4586 | 34 s |
+| Planificador escrito a mano perfecto (techo del juego) | 17888 | 203 s |
 
 Los niveles del juego salen de esa misma evolución: *Fácil* y *Normal* son campeones de
 generaciones tempranas (la 6 y la 40); *Difícil* y *Experto* son el campeón final, con 100 ms de
 tiempo de reacción y sin él. Con las reglas actuales (3 estrellas, 3 vidas, proyectiles normales)
 hacen de media, jugando solos, 3285, 8015, 11039 y 15137 puntos.
 
-Hubo dos entrenamientos. En el primero la red veía de cada proyectil «cerca y acercándose» y se
-quedó en 8685 puntos. En el segundo ve «cuándo y por dónde pasará», con la misma red y el mismo
-algoritmo, y llega a 11829. La red sigue lejos del planificador perfecto, que ve toda la arena sin
-límite de alcance; ese margen queda para quien quiera seguir el experimento.
+Hubo tres entrenamientos:
+
+1. La red veía de cada proyectil «cerca y acercándose»: 8685 puntos (con las reglas de entonces,
+   una sola estrella).
+2. La red ve «cuándo y por dónde pasará», con el mismo tamaño y el mismo algoritmo: 11829 puntos
+   con una estrella, 15137 con las tres de ahora. **Son los bots del juego.**
+3. Al pasar a 3 estrellas y añadir dificultades se entrenó de nuevo desde cero con esas reglas.
+   Salió algo peor que el segundo (13440 frente a 15675 puntos en las mismas partidas), así que no
+   se usa. Un solo entrenamiento de cada tipo no permite decir si es azar o si mezclar dificultades
+   perjudica.
+
+La red sigue lejos del planificador perfecto en aguante (55 s frente a 203 s): coge el doble de
+estrellas que él, pero cae mucho antes. Ese planificador ve toda la arena sin límite de alcance;
+ese margen queda para quien quiera seguir el experimento.
 
 ### El retraso de red
 

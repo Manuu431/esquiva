@@ -334,6 +334,50 @@ estrellas; todos puntúan más porque hay más que coger):
 Pruebas: 56 tests de Node; en navegador, un jugador (con vidas y dificultad elegidas en el menú),
 dos pestañas y sala llena de 6.
 
-En curso: tercer entrenamiento (`tres`) con 3 estrellas y partidas repartidas entre las tres
-dificultades (la mitad en normal), para ver si un bot criado con las reglas nuevas mejora al que
-solo las ha heredado.
+Después, a petición del usuario: las vidas del marcador se dibujan como corazones (las perdidas,
+apagadas) en vez de barritas.
+
+Para que tras publicar el navegador no mezcle ficheros nuevos con viejos de su caché, las URLs de
+scripts y estilos llevan un sufijo de versión (`?v=8`) que hay que subir en cada publicación.
+
+### Tercer entrenamiento (`tres`): resultado negativo
+
+Pregunta: ¿un bot criado desde cero con las reglas nuevas (3 estrellas y partidas repartidas entre
+las tres dificultades, la mitad en normal) mejora al del segundo entrenamiento, que solo las ha
+heredado? Mismo algoritmo, misma red, misma semilla, 300 generaciones.
+
+La fitness sube igual que en los anteriores (`train/results/tres.csv`):
+
+| gen | media población | validación (puntos) | validación (s) |
+|----:|----------------:|--------------------:|---------------:|
+|   0 |            1158 |                1401 |           15,1 |
+|  50 |            9169 |                9939 |           30,2 |
+| 100 |           11348 |               10553 |           36,9 |
+| 150 |           12821 |               12645 |           44,8 |
+| 200 |           13441 |               13171 |           49,5 |
+| 299 |           14215 |               14839 |           56,1 |
+
+Pero en las mismas 60 partidas de test, con las reglas nuevas, queda por debajo del anterior en
+las tres dificultades:
+
+| proyectiles | segundo entrenamiento (`tca`) | tercero (`tres`) |
+|-------------|------------------------------:|-----------------:|
+| suaves      |              19088 pts, 68,9 s |  18110 pts, 66,4 s |
+| normales    |              15675 pts, 58,1 s |  13440 pts, 50,3 s |
+| intensos    |              12257 pts, 46,2 s |  11385 pts, 43,6 s |
+
+**No se integra: el juego sigue con los pesos del segundo entrenamiento.** Lectura prudente: es
+un solo entrenamiento de cada tipo, y la diferencia (un 5-15 %) puede ser azar de la evolución.
+Para afirmar que mezclar dificultades perjudica harían falta varias repeticiones con semillas
+distintas. Lo que sí se puede decir es que el bot anterior generaliza bien a las reglas nuevas sin
+haberlas visto: los sensores le describen la estrella más cercana y el momento del impacto, y eso
+no cambia con el número de estrellas ni con la velocidad.
+
+Referencias con las reglas nuevas (60 partidas de test): quieto 817 puntos y 13,6 s; aleatorio
+1375 y 20,3 s; planificador con 250 ms de reacción 4586 y 33,9 s; planificador perfecto 17888 y
+202,7 s.
+
+Verificado en la URL pública tras publicar: sirve la versión nueva y la prueba de dos pestañas
+(crear sala, unirse, jugar dos rondas, caída del anfitrión) pasa.
+
+Pendiente: los datos de un humano jugando en solitario, y probar entre redes distintas y en móvil.

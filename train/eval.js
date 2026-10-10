@@ -27,12 +27,13 @@ function loadChampions(run) {
 }
 
 // Media y desviación típica de los segundos aguantados, además de puntos y estrellas.
-function measure(make, seeds) {
+// rules: { lives, hazard } opcional (por defecto, las reglas de referencia).
+function measure(make, seeds, rules) {
   const secs = [];
   let score = 0;
   let stars = 0;
   for (const seed of seeds) {
-    const r = T.playEpisode(make(), seed, MAX_TICKS);
+    const r = T.playEpisode(make(), seed, MAX_TICKS, rules);
     secs.push(r.ticks / 60);
     score += r.score;
     stars += r.stars;
@@ -85,6 +86,9 @@ if (require.main === module) {
   for (const d of [3, 6, 9, 12, 15]) {
     if (d !== delay) row('  ...la misma con reacción de ' + Math.round((d * 1000) / 60) + ' ms', measure(T.brainController(best.weights, d), TEST));
   }
+  ['suaves', 'normales', 'intensos'].forEach(function (name, hazard) {
+    row('  ...la misma con proyectiles ' + name, measure(T.brainController(best.weights, delay), TEST, { hazard: hazard }));
+  });
   row('Planificador, reacción 250 ms ("humano simulado")', measure(T.planner({ delay: 15, every: 6 }), TEST));
   row('Planificador, reacción 150 ms', measure(T.planner({ delay: 9, every: 3 }), TEST));
   row('Planificador perfecto (techo del juego)', measure(T.planner({}), TEST));

@@ -109,6 +109,15 @@
     shake = 0;
   }
 
+  // Corazón centrado en (x, y) de ancho s.
+  function heartPath(x, y, s) {
+    ctx.beginPath();
+    ctx.moveTo(x, y + s * 0.45);
+    ctx.bezierCurveTo(x - s * 0.8, y - s * 0.05, x - s * 0.4, y - s * 0.7, x, y - s * 0.22);
+    ctx.bezierCurveTo(x + s * 0.4, y - s * 0.7, x + s * 0.8, y - s * 0.05, x, y + s * 0.45);
+    ctx.closePath();
+  }
+
   function starPath(x, y, r, rot) {
     ctx.beginPath();
     for (let i = 0; i < 10; i++) {
@@ -307,13 +316,14 @@
       ctx.beginPath();
       ctx.arc(x0 + 10, y, 4.5, 0, TAU);
       ctx.fill();
-      // Vidas
+      // Vidas: un corazón por vida; las perdidas quedan apagadas.
       const maxLives = view.maxLives || C.LIVES;
       for (let l = 0; l < maxLives; l++) {
-        ctx.fillStyle = l < p.lives ? '#ff4d5e' : 'rgba(255,255,255,0.14)';
-        ctx.fillRect(x0 + 20 + l * 7, y - 4, 5, 8);
+        heartPath(x0 + 24 + l * 10, y, 9);
+        ctx.fillStyle = l < p.lives ? '#ff4d5e' : 'rgba(255,255,255,0.22)';
+        ctx.fill();
       }
-      const nameX = 24 + maxLives * 7;
+      const nameX = 22 + maxLives * 10;
       ctx.font = '700 12px ' + FONT;
       ctx.textAlign = 'right';
       ctx.fillStyle = '#e8ecff';

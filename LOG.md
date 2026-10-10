@@ -793,3 +793,15 @@ Sin tareas en segundo plano. Pendiente y opcional:
 - Sin probar: redes distintas, móvil real, y la comparación con un humano (el juego ya guarda
   todas sus partidas).
 
+
+## Paso a Xubuntu (2026-10-10)
+
+El usuario va a instalar Xubuntu en este portátil. Para que no se pierda nada:
+- `train/runs/` (los campeones de cada generación de todos los entrenamientos, 7 MB) entra en el
+  repositorio; antes estaba ignorado y solo vivía en el disco.
+- `CLAUDE.md` nuevo, con el contexto que necesita una sesión nueva: cómo quiere que se trabaje,
+  comandos, lo que muerde y lo pendiente.
+- `tools/cdp.js` busca también Chrome y Chromium en Linux (o el que diga la variable `CHROME`).
+- Lo que no viaja: `.tools/` (Node y GitHub CLI para Windows, se reinstalan), la sesión de GitHub
+  CLI (se vuelve a iniciar) y las partidas guardadas en el navegador de Windows (se pueden
+  exportar a CSV desde «Mis partidas», pero no hay importación).

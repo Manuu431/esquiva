@@ -1,0 +1,18 @@
+{
+  "name": "base",
+  "pop": 64,
+  "gens": 300,
+  "episodes": 8,
+  "delay": 0,
+  "seed": 1,
+  "elite": 4,
+  "tournament": 3,
+  "crossover": 0.7,
+  "mutRate": 0.08,
+  "sigma0": 0.35,
+  "sigmaDecay": 0.99,
+  "sigmaMin": 0.08,
+  "maxTicks": 14400,
+  "valSeeds": 20,
+  "restMs": 150
+}

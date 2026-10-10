@@ -1,0 +1,32 @@
+{
+  "name": "arena",
+  "arena": 4,
+  "pop": 64,
+  "gens": 200,
+  "rounds": 8,
+  "delay": 0,
+  "seed": 1,
+  "elite": 4,
+  "tournament": 3,
+  "crossover": 0.7,
+  "mutRate": 0.08,
+  "sigma0": 0.2,
+  "sigmaDecay": 0.99,
+  "sigmaMin": 0.06,
+  "selMutRate": 0.3,
+  "selSigma": 0.4,
+  "maxTicks": 14400,
+  "valGames": 16,
+  "valSeeds": 20,
+  "restMs": 150,
+  "hazards": [
+    1,
+    1,
+    1,
+    0,
+    1,
+    1,
+    1,
+    2
+  ]
+}
